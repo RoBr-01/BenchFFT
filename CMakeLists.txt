@@ -40,7 +40,7 @@ option(ENABLE_KISSFFT     "Enable KissFFT backend"     ON)
 option(ENABLE_POCKETFFT   "Enable PocketFFT backend"   ON)
 option(ENABLE_PFFFT       "Enable PFFFT backend"       ON)
 option(ENABLE_KFR         "Enable KFR backend"         OFF)  # OFF by default (compilation issues on some platforms)
-option(ENABLE_SIGNALSMITH "Enable Signalsmith backend" OFF)
+option(ENABLE_SIGNALSMITH "Enable Signalsmith backend" ON)
 
 # ============================================================================
 # CPM - CMake Package Manager
