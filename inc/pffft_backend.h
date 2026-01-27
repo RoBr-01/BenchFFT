@@ -7,7 +7,7 @@
 class PFFFTBackend : public FFTBackend {
 public:
     ~PFFFTBackend() override {
-        cleanup();
+        cleanup();  // Safe to call - cleanup is idempotent
     }
     
     void setup(int size) override {
@@ -19,23 +19,33 @@ public:
         setup_complex_ = pffft_new_setup(size, PFFFT_COMPLEX);
         
         // Allocate aligned work buffers
-        work_buffer_ = static_cast<float*>(pffft_aligned_malloc(size * sizeof(float)));
+        work_buffer_ = static_cast<float*>(pffft_aligned_malloc(size * sizeof(float) * 2));
         input_buffer_ = static_cast<float*>(pffft_aligned_malloc(size * sizeof(float) * 2));
         output_buffer_ = static_cast<float*>(pffft_aligned_malloc(size * sizeof(float) * 2));
     }
     
     void cleanup() override {
-        if (setup_real_) pffft_destroy_setup(setup_real_);
-        if (setup_complex_) pffft_destroy_setup(setup_complex_);
-        if (work_buffer_) pffft_aligned_free(work_buffer_);
-        if (input_buffer_) pffft_aligned_free(input_buffer_);
-        if (output_buffer_) pffft_aligned_free(output_buffer_);
-        
-        setup_real_ = nullptr;
-        setup_complex_ = nullptr;
-        work_buffer_ = nullptr;
-        input_buffer_ = nullptr;
-        output_buffer_ = nullptr;
+        // Set to nullptr INSIDE the if blocks to make this truly idempotent
+        if (setup_real_) {
+            pffft_destroy_setup(setup_real_);
+            setup_real_ = nullptr;
+        }
+        if (setup_complex_) {
+            pffft_destroy_setup(setup_complex_);
+            setup_complex_ = nullptr;
+        }
+        if (work_buffer_) {
+            pffft_aligned_free(work_buffer_);
+            work_buffer_ = nullptr;
+        }
+        if (input_buffer_) {
+            pffft_aligned_free(input_buffer_);
+            input_buffer_ = nullptr;
+        }
+        if (output_buffer_) {
+            pffft_aligned_free(output_buffer_);
+            output_buffer_ = nullptr;
+        }
     }
     
     void forward(const float* in, std::complex<float>* out) override {

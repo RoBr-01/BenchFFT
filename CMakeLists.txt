@@ -5,19 +5,45 @@ if(POLICY CMP0169)
     cmake_policy(SET CMP0169 OLD)
 endif()
 
-project(fft_benchmark CXX C)
+project(fft_benchmark 
+    VERSION 1.0.0
+    LANGUAGES CXX C
+    DESCRIPTION "FFT Library Benchmark Suite"
+)
 
+# ============================================================================
+# Build Configuration
+# ============================================================================
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Enable optimizations for benchmarking
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
+# Default to Release build for performance
 if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+# Optimization flags
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
+elseif(MSVC)
+    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /DNDEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG "/Od /Zi")
 endif()
 
 # ============================================================================
-# CPM - CMake Package Manager (auto-downloads dependencies)
+# Options - FFT Backend Selection
+# ============================================================================
+option(ENABLE_FFTW        "Enable FFTW backend"        ON)
+option(ENABLE_KISSFFT     "Enable KissFFT backend"     ON)
+option(ENABLE_POCKETFFT   "Enable PocketFFT backend"   ON)
+option(ENABLE_PFFFT       "Enable PFFFT backend"       ON)
+option(ENABLE_KFR         "Enable KFR backend"         OFF)  # OFF by default (compilation issues on some platforms)
+option(ENABLE_SIGNALSMITH "Enable Signalsmith backend" OFF)
+
+# ============================================================================
+# CPM - CMake Package Manager
 # ============================================================================
 set(CPM_DOWNLOAD_VERSION 0.38.1)
 
@@ -34,85 +60,105 @@ if(NOT (EXISTS ${CPM_DOWNLOAD_LOCATION}))
     file(DOWNLOAD
         https://github.com/cpm-cmake/CPM.cmake/releases/download/v${CPM_DOWNLOAD_VERSION}/CPM.cmake
         ${CPM_DOWNLOAD_LOCATION}
+        SHOW_PROGRESS
     )
 endif()
 
 include(${CPM_DOWNLOAD_LOCATION})
 
-set(CMAKE_OSX_ARCHITECTURES "arm64")
-
-message(STATUS "Compiler ID: ${CMAKE_CXX_COMPILER_ID}")
-message(STATUS "Compiler Version: ${CMAKE_CXX_COMPILER_VERSION}")
-message(STATUS "Compiler Path: ${CMAKE_CXX_COMPILER}")
 # ============================================================================
-# Backend Options
+# Main Executable
 # ============================================================================
-option(ENABLE_FFTW "Enable FFTW backend" ON)
-option(ENABLE_KISSFFT "Enable KissFFT backend" ON)
-option(ENABLE_POCKETFFT "Enable PocketFFT backend" ON)
-option(ENABLE_PFFFT "Enable PFFFT backend" ON)
-option(ENABLE_KFR "Enable KFR backend" ON) # OFF by default (heavy dependency)
-option(ENABLE_SIGNALSMITH "Enable Signalsmith backend" OFF)
-
-# ============================================================================
-# Source files
-# ============================================================================
-set(SOURCES src/fft_benchmark.cpp)
-set(HEADERS
-    inc/fft_backend.h
-    inc/fftw_backend.h
-    inc/kissfft_backend.h
-    inc/pocketfft_backend.h
-    inc/pffft_backend.h
-    # inc/kfr_backend.h
-    inc/other_backends.h
+add_executable(fft_benchmark 
+    src/fft_benchmark.cpp
 )
 
-include_directories(${CMAKE_SOURCE_DIR}/inc)
-
-add_executable(fft_benchmark ${SOURCES} ${HEADERS})
-target_include_directories(fft_benchmark PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(fft_benchmark 
+    PRIVATE 
+        ${CMAKE_CURRENT_SOURCE_DIR}/inc
+)
 
 # ============================================================================
-# Dependencies via CPM
+# Backend: FFTW (via system package manager)
 # ============================================================================
-
-# FFTW - Try system install first, otherwise skip (needs separate installation)
 if(ENABLE_FFTW)
-    set(FFTW_PREFIX /opt/homebrew/Cellar/fftw/3.3.10_2)
-
-    set(FFTW3_INCLUDE_DIR ${FFTW_PREFIX}/include)
-    set(FFTW3F_LIBRARY ${FFTW_PREFIX}/lib/libfftw3f.dylib)
-
-    if(EXISTS ${FFTW3_INCLUDE_DIR} AND EXISTS ${FFTW3F_LIBRARY})
-        message(STATUS "✓ FFTW found at ${FFTW_PREFIX}")
-        target_include_directories(fft_benchmark PRIVATE ${FFTW3_INCLUDE_DIR})
-        target_link_libraries(fft_benchmark PRIVATE ${FFTW3F_LIBRARY})
+    # Try to find FFTW using pkg-config first (most reliable)
+    find_package(PkgConfig QUIET)
+    
+    if(PkgConfig_FOUND)
+        pkg_check_modules(FFTW3F fftw3f)
+    endif()
+    
+    # Manual search if pkg-config fails
+    if(NOT FFTW3F_FOUND)
+        find_path(FFTW3_INCLUDE_DIR 
+            NAMES fftw3.h
+            PATHS
+                /usr/local/include
+                /usr/include
+                /opt/homebrew/include
+                /opt/local/include
+        )
+        
+        find_library(FFTW3F_LIBRARY
+            NAMES fftw3f libfftw3f.dylib
+            PATHS
+                /usr/local/lib
+                /usr/lib
+                /opt/homebrew/lib
+                /opt/local/lib
+        )
+        
+        if(FFTW3_INCLUDE_DIR AND FFTW3F_LIBRARY)
+            set(FFTW3F_FOUND TRUE)
+            set(FFTW3F_INCLUDE_DIRS ${FFTW3_INCLUDE_DIR})
+            set(FFTW3F_LINK_LIBRARIES ${FFTW3F_LIBRARY})
+        endif()
+    endif()
+    
+    if(FFTW3F_FOUND)
+        message(STATUS "✓ FFTW found")
+        message(STATUS "  Include: ${FFTW3F_INCLUDE_DIRS}")
+        message(STATUS "  Library: ${FFTW3F_LINK_LIBRARIES}")
+        
+        target_include_directories(fft_benchmark PRIVATE ${FFTW3F_INCLUDE_DIRS})
+        # Use LINK_LIBRARIES which has full paths, not LIBRARIES which only has names
+        target_link_libraries(fft_benchmark PRIVATE ${FFTW3F_LINK_LIBRARIES})
         target_compile_definitions(fft_benchmark PRIVATE HAVE_FFTW)
     else()
-        message(FATAL_ERROR "FFTW not found at ${FFTW_PREFIX}")
+        message(WARNING "✗ FFTW not found - install with: brew install fftw (macOS) or apt-get install libfftw3-dev (Ubuntu)")
+        set(ENABLE_FFTW OFF)
     endif()
 endif()
 
-# KissFFT - Header-only with separate implementation
+# ============================================================================
+# Backend: KissFFT (via CPM)
+# ============================================================================
 if(ENABLE_KISSFFT)
     CPMAddPackage(
         NAME kissfft
         GITHUB_REPOSITORY mborgerding/kissfft
-        GIT_TAG master
+        GIT_TAG 131.1.0
         OPTIONS
-        "KISSFFT_DATATYPE float"
-        "KISSFFT_STATIC ON"
+            "KISSFFT_DATATYPE float"
+            "KISSFFT_STATIC ON"
+            "KISSFFT_TEST OFF"
+            "KISSFFT_TOOLS OFF"
     )
-
+    
     if(kissfft_ADDED)
-        message(STATUS "✓ KissFFT fetched via CPM")
+        message(STATUS "✓ KissFFT added via CPM")
         target_link_libraries(fft_benchmark PRIVATE kissfft::kissfft)
         target_compile_definitions(fft_benchmark PRIVATE HAVE_KISSFFT)
+    else()
+        message(WARNING "✗ KissFFT could not be fetched")
+        set(ENABLE_KISSFFT OFF)
     endif()
 endif()
 
-# PocketFFT - Header-only
+# ============================================================================
+# Backend: PocketFFT (header-only via CPM)
+# ============================================================================
 if(ENABLE_POCKETFFT)
     CPMAddPackage(
         NAME pocketfft
@@ -120,15 +166,20 @@ if(ENABLE_POCKETFFT)
         GIT_TAG cpp
         DOWNLOAD_ONLY YES
     )
-
+    
     if(pocketfft_ADDED)
-        message(STATUS "✓ PocketFFT fetched via CPM")
+        message(STATUS "✓ PocketFFT added via CPM")
         target_include_directories(fft_benchmark PRIVATE ${pocketfft_SOURCE_DIR})
         target_compile_definitions(fft_benchmark PRIVATE HAVE_POCKETFFT)
+    else()
+        message(WARNING "✗ PocketFFT could not be fetched")
+        set(ENABLE_POCKETFFT OFF)
     endif()
 endif()
 
-# PFFFT - Pretty Fast FFT (download only, we'll compile directly)
+# ============================================================================
+# Backend: PFFFT (compiled from source via CPM)
+# ============================================================================
 if(ENABLE_PFFFT)
     CPMAddPackage(
         NAME pffft
@@ -136,114 +187,115 @@ if(ENABLE_PFFFT)
         GIT_TAG master
         DOWNLOAD_ONLY YES
     )
-
+    
     if(pffft_ADDED)
-        message(STATUS "✓ PFFFT fetched via CPM")
-
-        # Compile PFFFT sources directly (avoids CMake issues in greenffts subdir)
-        add_library(pffft_local STATIC
+        message(STATUS "✓ PFFFT added via CPM")
+        
+        # Create library from source files
+        # Need to include pffft_common.c for aligned_malloc/aligned_free
+        add_library(pffft_lib STATIC
             ${pffft_SOURCE_DIR}/pffft.c
             ${pffft_SOURCE_DIR}/pffft_double.c
+            ${pffft_SOURCE_DIR}/pffft_common.c
         )
-        target_include_directories(pffft_local PUBLIC ${pffft_SOURCE_DIR})
-
-        target_link_libraries(fft_benchmark PRIVATE pffft_local)
-        target_include_directories(fft_benchmark PRIVATE ${pffft_SOURCE_DIR})
+        
+        target_include_directories(pffft_lib PUBLIC ${pffft_SOURCE_DIR})
+        
+        # Link with math library on Unix
+        if(UNIX)
+            target_link_libraries(pffft_lib PRIVATE m)
+        endif()
+        
+        target_link_libraries(fft_benchmark PRIVATE pffft_lib)
         target_compile_definitions(fft_benchmark PRIVATE HAVE_PFFFT)
+    else()
+        message(WARNING "✗ PFFFT could not be fetched")
+        set(ENABLE_PFFFT OFF)
     endif()
 endif()
 
-# KFR - DSP Framework (large dependency, disabled by default)
-# Before fetching KFR
-# if(ENABLE_KFR)
-#     set(CMAKE_OSX_ARCHITECTURES "x86_64")
-#     set(KFR_ARCH "avx2" CACHE STRING "" FORCE)
-#     set(KFR_ENABLE_MULTIARCH OFF CACHE BOOL "" FORCE)
-#     set(KFR_ENABLE_DETECT_CPU OFF CACHE BOOL "" FORCE)
+# ============================================================================
+# Backend: KFR (heavy DSP framework via CPM)
+# ============================================================================
+if(ENABLE_KFR)
+    # KFR requires specific architecture settings
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm|ARM|aarch64|AARCH64")
+        set(KFR_ARCH "neon" CACHE STRING "" FORCE)
+    else()
+        # Use generic x86-64 to avoid AVX issues
+        set(KFR_ARCH "sse2" CACHE STRING "" FORCE)
+    endif()
+    
+    set(KFR_ENABLE_MULTIARCH OFF CACHE BOOL "" FORCE)
+    set(KFR_ENABLE_DETECT_CPU OFF CACHE BOOL "" FORCE)
+    
+    CPMAddPackage(
+        NAME kfr
+        GITHUB_REPOSITORY kfrlib/kfr
+        GIT_TAG 6.0.2
+        OPTIONS
+            "KFR_ENABLE_MULTIARCH OFF"
+            "KFR_ENABLE_DETECT_CPU OFF"
+    )
+    
+    if(kfr_ADDED)
+        message(STATUS "✓ KFR added via CPM")
+        target_link_libraries(fft_benchmark PRIVATE kfr kfr_dft)
+        target_compile_definitions(fft_benchmark PRIVATE HAVE_KFR)
+    else()
+        message(WARNING "✗ KFR could not be fetched")
+        set(ENABLE_KFR OFF)
+    endif()
+endif()
 
-#     CPMAddPackage(
-#         NAME kfr
-#         GITHUB_REPOSITORY kfrlib/kfr
-#         GIT_TAG 6.0.2
-#     )
-
-#     if(kfr_ADDED)
-#         message(STATUS "✓ KFR fetched via CPM")
-#         target_link_libraries(fft_benchmark PRIVATE kfr kfr_dft)
-#         target_compile_definitions(fft_benchmark PRIVATE HAVE_KFR)
-#     endif()
-# endif()
-
+# ============================================================================
+# Backend: Signalsmith (header-only via CPM)
+# ============================================================================
 if(ENABLE_SIGNALSMITH)
     CPMAddPackage(
-        NAME dsp
+        NAME signalsmith_dsp
         GITHUB_REPOSITORY Signalsmith-Audio/dsp
         GIT_TAG main
         DOWNLOAD_ONLY YES
     )
-
-    if(dsp_ADDED)
-        message(STATUS "✓ Signalsmith fetched via CPM")
-        # Include the "include" folder, not the repo root
-        target_include_directories(fft_benchmark PRIVATE ${dsp_SOURCE_DIR}/include)
+    
+    if(signalsmith_dsp_ADDED)
+        message(STATUS "✓ Signalsmith DSP added via CPM")
+        target_include_directories(fft_benchmark PRIVATE ${signalsmith_dsp_SOURCE_DIR})
         target_compile_definitions(fft_benchmark PRIVATE HAVE_SIGNALSMITH)
+    else()
+        message(WARNING "✗ Signalsmith DSP could not be fetched")
+        set(ENABLE_SIGNALSMITH OFF)
     endif()
 endif()
 
 # ============================================================================
-# Platform-specific settings
+# Platform-specific Libraries
 # ============================================================================
-if(UNIX AND NOT APPLE)
+if(UNIX)
     target_link_libraries(fft_benchmark PRIVATE pthread m)
 endif()
 
 # ============================================================================
-# Summary
+# Build Summary
 # ============================================================================
 message(STATUS "")
-message(STATUS "FFT Benchmark Configuration:")
-message(STATUS "=============================")
-message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "═══════════════════════════════════════════════════════════")
+message(STATUS "FFT Benchmark Configuration Summary")
+message(STATUS "═══════════════════════════════════════════════════════════")
+message(STATUS "Build Type:    ${CMAKE_BUILD_TYPE}")
+message(STATUS "Compiler:      ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS "Platform:      ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
 message(STATUS "")
-message(STATUS "Enabled backends:")
-
-if(FFTW3F_FOUND OR FFTW3F_LIBRARY)
-    message(STATUS "  ✓ FFTW")
-else()
-    message(STATUS "  ✗ FFTW (not found)")
-endif()
-
-if(TARGET kissfft::kissfft)
-    message(STATUS "  ✓ KissFFT")
-else()
-    message(STATUS "  ✗ KissFFT")
-endif()
-
-if(pocketfft_ADDED)
-    message(STATUS "  ✓ PocketFFT")
-else()
-    message(STATUS "  ✗ PocketFFT")
-endif()
-
-if(pffft_ADDED)
-    message(STATUS "  ✓ PFFFT")
-else()
-    message(STATUS "  ✗ PFFFT")
-endif()
-
-if(kfr_ADDED)
-    message(STATUS "  ✓ KFR")
-else()
-    message(STATUS "  ✗ KFR")
-endif()
-
-if(dsp_ADDED)
-    message(STATUS "  ✓ Signalsmith")
-else()
-    message(STATUS "  ✗ Signalsmith")
-endif()
-
+message(STATUS "Enabled FFT Backends:")
+message(STATUS "  ${ENABLE_FFTW}        FFTW")
+message(STATUS "  ${ENABLE_KISSFFT}        KissFFT")
+message(STATUS "  ${ENABLE_POCKETFFT}        PocketFFT")
+message(STATUS "  ${ENABLE_PFFFT}        PFFFT")
+message(STATUS "  ${ENABLE_KFR}        KFR")
+message(STATUS "  ${ENABLE_SIGNALSMITH}        Signalsmith")
 message(STATUS "")
-message(STATUS "To enable/disable backends, use:")
-message(STATUS "  cmake -DENABLE_FFTW=ON -DENABLE_KFR=OFF ..")
+message(STATUS "To toggle backends:")
+message(STATUS "  cmake -DENABLE_FFTW=OFF -DENABLE_KFR=ON ..")
+message(STATUS "═══════════════════════════════════════════════════════════")
 message(STATUS "")
