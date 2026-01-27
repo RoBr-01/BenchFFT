@@ -1,0 +1,9 @@
+build/
+*.icloud
+.DS_Store
+.vscode
+
+
+!lib/
+!inc/
+!src/
