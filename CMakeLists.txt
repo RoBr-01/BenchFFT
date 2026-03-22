@@ -35,13 +35,13 @@ endif()
 # ============================================================================
 # Options - FFT Backend Selection
 # ============================================================================
-option(ENABLE_FFTW        "Enable FFTW backend"        OFF)
-option(ENABLE_KISSFFT     "Enable KissFFT backend"     ON)
-option(ENABLE_POCKETFFT   "Enable PocketFFT backend"   ON)
+option(ENABLE_FFTW        "Enable FFTW backend"        ON)
+option(ENABLE_KISSFFT     "Enable KissFFT backend"     OFF)
+option(ENABLE_POCKETFFT   "Enable PocketFFT backend"   OFF)
 option(ENABLE_PFFFT       "Enable PFFFT backend"       ON)
 option(ENABLE_KFR         "Enable KFR backend"         OFF)  # Broken on AppleClang 17 / ARM64 (vec.hpp issue in KFR 6.0.2)
 option(ENABLE_SIGNALSMITH "Enable Signalsmith backend" ON)
-option(ENABLE_JUCE        "Enable JUCE backend"        OFF)
+option(ENABLE_JUCE        "Enable JUCE backend"        ON)
 
 # ============================================================================
 # CPM - CMake Package Manager
