@@ -1,7 +1,5 @@
 #pragma once
 
-#ifdef HAVE_JUCE
-
 #include "fft_backend.h"
 #include <juce_dsp/juce_dsp.h>
 #include <vector>
@@ -85,8 +83,12 @@ public:
             interleaved_buffer_[i * 2 + 1] = in[i].imag();
         }
         
+        // Cast to JUCE's Complex type
+        auto* input_complex = reinterpret_cast<juce::dsp::Complex<float>*>(interleaved_buffer_.data());
+        auto* output_complex = reinterpret_cast<juce::dsp::Complex<float>*>(temp_buffer_.data());
+        
         // Perform complex FFT (forward = false)
-        fft_->perform(interleaved_buffer_.data(), temp_buffer_.data(), false);
+        fft_->perform(input_complex, output_complex, false);
         
         // Convert back to std::complex
         for (int i = 0; i < size_; ++i) {
@@ -105,8 +107,12 @@ public:
             interleaved_buffer_[i * 2 + 1] = in[i].imag();
         }
         
+        // Cast to JUCE's Complex type
+        auto* input_complex = reinterpret_cast<juce::dsp::Complex<float>*>(interleaved_buffer_.data());
+        auto* output_complex = reinterpret_cast<juce::dsp::Complex<float>*>(temp_buffer_.data());
+        
         // Perform complex IFFT (inverse = true)
-        fft_->perform(interleaved_buffer_.data(), temp_buffer_.data(), true);
+        fft_->perform(input_complex, output_complex, true);
         
         // JUCE doesn't normalize, so divide by size
         for (int i = 0; i < size_; ++i) {
@@ -133,5 +139,3 @@ private:
     std::vector<float> interleaved_buffer_;  // [r0,i0,r1,i1,...]
     std::vector<float> temp_buffer_;         // For complex FFT output
 };
-
-#endif // HAVE_JUCE

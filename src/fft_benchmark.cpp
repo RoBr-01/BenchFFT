@@ -21,10 +21,19 @@
 #include "kfr_backend.h"
 #endif
 
-// These are in other_backends.h, which handles its own ifdefs
 #ifdef HAVE_SIGNALSMITH
 #include "signalsmith_backend.h"
 #endif
+
+#ifdef HAVE_JUCE
+#include "JUCE_backend.h"
+#endif
+
+#ifdef HAVE_HIFILOFI
+#include "hifilofi_backend.h"
+#endif
+
+// includes
 #include <algorithm>
 #include <chrono>
 #include <cmath>

@@ -39,32 +39,18 @@ option(ENABLE_FFTW        "Enable FFTW backend"        ON)
 option(ENABLE_KISSFFT     "Enable KissFFT backend"     ON)
 option(ENABLE_POCKETFFT   "Enable PocketFFT backend"   ON)
 option(ENABLE_PFFFT       "Enable PFFFT backend"       ON)
-option(ENABLE_KFR         "Enable KFR backend"         OFF)  # OFF by default (compilation issues on some platforms)
+option(ENABLE_KFR         "Enable KFR backend"         OFF)  # Broken on AppleClang 17 / ARM64 (vec.hpp issue in KFR 6.0.2)
 option(ENABLE_SIGNALSMITH "Enable Signalsmith backend" ON)
+option(ENABLE_JUCE        "Enable JUCE backend"        ON)
 
 # ============================================================================
 # CPM - CMake Package Manager
 # ============================================================================
-set(CPM_DOWNLOAD_VERSION 0.38.1)
-
-if(CPM_SOURCE_CACHE)
-    set(CPM_DOWNLOAD_LOCATION "${CPM_SOURCE_CACHE}/cpm/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
-elseif(DEFINED ENV{CPM_SOURCE_CACHE})
-    set(CPM_DOWNLOAD_LOCATION "$ENV{CPM_SOURCE_CACHE}/cpm/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
-else()
-    set(CPM_DOWNLOAD_LOCATION "${CMAKE_BINARY_DIR}/cmake/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
-endif()
-
-if(NOT (EXISTS ${CPM_DOWNLOAD_LOCATION}))
-    message(STATUS "Downloading CPM.cmake to ${CPM_DOWNLOAD_LOCATION}")
-    file(DOWNLOAD
-        https://github.com/cpm-cmake/CPM.cmake/releases/download/v${CPM_DOWNLOAD_VERSION}/CPM.cmake
-        ${CPM_DOWNLOAD_LOCATION}
-        SHOW_PROGRESS
-    )
-endif()
-
-include(${CPM_DOWNLOAD_LOCATION})
+# Vendored copy lives at cmake/CPM.cmake in the source tree.
+# Disable CPM's self-update mechanism - it tries to download a newer version
+# of itself at configure time which fails in offline/restricted environments.
+set(CPM_DONT_UPDATE_MODULE_PATH ON CACHE BOOL "" FORCE)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/CPM.cmake")
 
 # ============================================================================
 # Main Executable
@@ -82,14 +68,12 @@ target_include_directories(fft_benchmark
 # Backend: FFTW (via system package manager)
 # ============================================================================
 if(ENABLE_FFTW)
-    # Try to find FFTW using pkg-config first (most reliable)
     find_package(PkgConfig QUIET)
     
     if(PkgConfig_FOUND)
         pkg_check_modules(FFTW3F fftw3f)
     endif()
     
-    # Manual search if pkg-config fails
     if(NOT FFTW3F_FOUND)
         find_path(FFTW3_INCLUDE_DIR 
             NAMES fftw3.h
@@ -122,7 +106,6 @@ if(ENABLE_FFTW)
         message(STATUS "  Library: ${FFTW3F_LINK_LIBRARIES}")
         
         target_include_directories(fft_benchmark PRIVATE ${FFTW3F_INCLUDE_DIRS})
-        # Use LINK_LIBRARIES which has full paths, not LIBRARIES which only has names
         target_link_libraries(fft_benchmark PRIVATE ${FFTW3F_LINK_LIBRARIES})
         target_compile_definitions(fft_benchmark PRIVATE HAVE_FFTW)
     else()
@@ -191,17 +174,21 @@ if(ENABLE_PFFFT)
     if(pffft_ADDED)
         message(STATUS "✓ PFFFT added via CPM")
         
-        # Create library from source files
-        # Need to include pffft_common.c for aligned_malloc/aligned_free
         add_library(pffft_lib STATIC
-            ${pffft_SOURCE_DIR}/pffft.c
-            ${pffft_SOURCE_DIR}/pffft_double.c
-            ${pffft_SOURCE_DIR}/pffft_common.c
+            ${pffft_SOURCE_DIR}/src/pffft.c
+            ${pffft_SOURCE_DIR}/src/pffft_double.c
+            ${pffft_SOURCE_DIR}/src/pffft_common.c
         )
         
-        target_include_directories(pffft_lib PUBLIC ${pffft_SOURCE_DIR})
+        # Sources use bare includes like "pffft.h" and "pffft_double.h".
+        # Public headers live in include/pffft/, internal headers in src/.
+        # Both must be on the include path so the .c files can find everything.
+        target_include_directories(pffft_lib
+            PUBLIC  ${pffft_SOURCE_DIR}/include/pffft   # exposes pffft.h to consumers too
+            PRIVATE ${pffft_SOURCE_DIR}/include/pffft   # so .c files find pffft_double.h etc.
+                    ${pffft_SOURCE_DIR}/src              # internal: pffft_priv_impl.h, fmv.h, simd/
+        )
         
-        # Link with math library on Unix
         if(UNIX)
             target_link_libraries(pffft_lib PRIVATE m)
         endif()
@@ -218,11 +205,9 @@ endif()
 # Backend: KFR (heavy DSP framework via CPM)
 # ============================================================================
 if(ENABLE_KFR)
-    # KFR requires specific architecture settings
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm|ARM|aarch64|AARCH64")
         set(KFR_ARCH "neon" CACHE STRING "" FORCE)
     else()
-        # Use generic x86-64 to avoid AVX issues
         set(KFR_ARCH "sse2" CACHE STRING "" FORCE)
     endif()
     
@@ -270,6 +255,107 @@ if(ENABLE_SIGNALSMITH)
 endif()
 
 # ============================================================================
+# Backend: JUCE (large DSP framework via CPM)
+# ============================================================================
+if(ENABLE_JUCE)
+    message(STATUS "Fetching JUCE (this may take a while, it's a large framework)...")
+    
+    CPMAddPackage(
+        NAME juce
+        GITHUB_REPOSITORY juce-framework/JUCE
+        GIT_TAG 8.0.0
+        DOWNLOAD_ONLY YES
+    )
+    
+    if(juce_ADDED)
+        message(STATUS "✓ JUCE downloaded via CPM")
+        
+        target_include_directories(fft_benchmark PRIVATE 
+            ${juce_SOURCE_DIR}/modules
+        )
+        
+        target_compile_definitions(fft_benchmark PRIVATE 
+            HAVE_JUCE
+            JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+            JUCE_STANDALONE_APPLICATION=1
+            JUCE_USE_CURL=0
+            JUCE_WEB_BROWSER=0
+            JUCE_MODAL_LOOPS_PERMITTED=0
+        )
+        
+        # ----------------------------------------------------------------
+        # JUCE module unity-build sources
+        # ----------------------------------------------------------------
+        set(JUCE_SOURCES
+            ${juce_SOURCE_DIR}/modules/juce_core/juce_core.cpp
+            ${juce_SOURCE_DIR}/modules/juce_audio_basics/juce_audio_basics.cpp
+            ${juce_SOURCE_DIR}/modules/juce_audio_formats/juce_audio_formats.cpp
+            ${juce_SOURCE_DIR}/modules/juce_dsp/juce_dsp.cpp
+        )
+        
+        if(APPLE)
+            # JUCE's ObjC++ unity files must be compiled as Objective-C++.
+            # We set this per-file so the main benchmark source is unaffected.
+            set_source_files_properties(${JUCE_SOURCES} PROPERTIES
+                COMPILE_FLAGS "-x objective-c++"
+            )
+            
+            target_link_libraries(fft_benchmark PRIVATE
+                "-framework Accelerate"
+                "-framework AudioToolbox"
+                "-framework Cocoa"
+                "-framework IOKit"
+                "-framework CoreFoundation"
+                "-framework Security"
+            )
+        endif()
+
+        # ----------------------------------------------------------------
+        # juce_stubs.cpp — provides juce_compilationDate / juce_compilationTime
+        # that JUCE normally auto-generates during a full JUCE build.
+        #
+        # We look for it next to CMakeLists.txt first (project root), then
+        # fall back to src/, then inc/ — so the project keeps working
+        # regardless of where the file lives.
+        # ----------------------------------------------------------------
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/juce_stubs.cpp")
+            set(JUCE_STUBS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/juce_stubs.cpp")
+        elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/juce_stubs.cpp")
+            set(JUCE_STUBS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/juce_stubs.cpp")
+        elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/inc/juce_stubs.cpp")
+            set(JUCE_STUBS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/inc/juce_stubs.cpp")
+        else()
+            # Neither location found — generate a minimal stub on the fly so
+            # the build doesn't fail outright.
+            message(STATUS "  juce_stubs.cpp not found — generating a minimal stub")
+            set(JUCE_STUBS_SRC "${CMAKE_CURRENT_BINARY_DIR}/juce_stubs.cpp")
+            file(WRITE "${JUCE_STUBS_SRC}"
+"// Auto-generated by CMake — provides JUCE compilation timestamp symbols.\n"
+"namespace juce\n"
+"{\n"
+"    extern const char* const juce_compilationDate = __DATE__;\n"
+"    extern const char* const juce_compilationTime = __TIME__;\n"
+"}\n"
+            )
+        endif()
+
+        message(STATUS "  Using juce_stubs.cpp from: ${JUCE_STUBS_SRC}")
+
+        # The stubs file is plain C++ (no ObjC), so add it separately without
+        # the "-x objective-c++" flag that the JUCE unity files carry.
+        target_sources(fft_benchmark PRIVATE
+            ${JUCE_SOURCES}
+            ${JUCE_STUBS_SRC}
+        )
+        
+        message(STATUS "    JUCE modules: juce_core, juce_audio_basics, juce_audio_formats, juce_dsp")
+    else()
+        message(WARNING "✗ JUCE could not be fetched")
+        set(ENABLE_JUCE OFF)
+    endif()
+endif()
+
+# ============================================================================
 # Platform-specific Libraries
 # ============================================================================
 if(UNIX)
@@ -294,6 +380,7 @@ message(STATUS "  ${ENABLE_POCKETFFT}        PocketFFT")
 message(STATUS "  ${ENABLE_PFFFT}        PFFFT")
 message(STATUS "  ${ENABLE_KFR}        KFR")
 message(STATUS "  ${ENABLE_SIGNALSMITH}        Signalsmith")
+message(STATUS "  ${ENABLE_JUCE}        JUCE")
 message(STATUS "")
 message(STATUS "To toggle backends:")
 message(STATUS "  cmake -DENABLE_FFTW=OFF -DENABLE_KFR=ON ..")
