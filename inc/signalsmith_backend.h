@@ -38,29 +38,21 @@ class SignalsmithBackend : public FFTBackend {
     }
 
     void forward(const float* in, std::complex<float>* out) override {
-        // Copy input
+        // Copy input into real_buffer_ (fft() may not accept const input)
         std::copy(in, in + size_, real_buffer_.begin());
-
-        // Perform real FFT using RealFFT class
-        real_fft_.fft(real_buffer_.data(), complex_buffer_.data());
-
-        // Copy output (RealFFT produces size/2 + 1 complex values)
-        std::copy(complex_buffer_.begin(),
-                  complex_buffer_.begin() + size_ / 2 + 1,
-                  out);
+        // Write directly to caller's out — no intermediate complex_buffer_ copy
+        real_fft_.fft(real_buffer_.data(), out);
     }
 
     void backward(const std::complex<float>* in, float* out) override {
-        // Copy input (size/2 + 1 complex values)
+        // Stage input — ifft() needs non-const and may modify it
         std::copy(in, in + size_ / 2 + 1, complex_buffer_.begin());
-
-        // Perform inverse real FFT
-        real_fft_.ifft(complex_buffer_.data(), real_buffer_.data());
-
-        // Signalsmith's ifft() does NOT normalize, so we must divide by size
-        for (int i = 0; i < size_; ++i) {
-            out[i] = real_buffer_[i] / size_;
-        }
+        // Write directly to caller's out
+        real_fft_.ifft(complex_buffer_.data(), out);
+        // Signalsmith ifft() does NOT normalize
+        const float inv = 1.0f / static_cast<float>(size_);
+        for (int i = 0; i < size_; ++i)
+            out[i] *= inv;
     }
 
     void forward_complex(const std::complex<float>* in,

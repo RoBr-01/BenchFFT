@@ -1,29 +1,33 @@
 #pragma once
 
-#include "fft_backend.h"
-#include "pffft.h"
 #include <vector>
 
+#include "fft_backend.h"
+#include "pffft.h"
+
 class PFFFTBackend : public FFTBackend {
-public:
+   public:
     ~PFFFTBackend() override {
         cleanup();  // Safe to call - cleanup is idempotent
     }
-    
+
     void setup(int size) override {
         cleanup();
         size_ = size;
-        
+
         // PFFFT requires size to be a multiple of 16 for SIMD
         setup_real_ = pffft_new_setup(size, PFFFT_REAL);
         setup_complex_ = pffft_new_setup(size, PFFFT_COMPLEX);
-        
+
         // Allocate aligned work buffers
-        work_buffer_ = static_cast<float*>(pffft_aligned_malloc(size * sizeof(float) * 2));
-        input_buffer_ = static_cast<float*>(pffft_aligned_malloc(size * sizeof(float) * 2));
-        output_buffer_ = static_cast<float*>(pffft_aligned_malloc(size * sizeof(float) * 2));
+        work_buffer_ =
+            static_cast<float*>(pffft_aligned_malloc(size * sizeof(float) * 2));
+        input_buffer_ =
+            static_cast<float*>(pffft_aligned_malloc(size * sizeof(float) * 2));
+        output_buffer_ =
+            static_cast<float*>(pffft_aligned_malloc(size * sizeof(float) * 2));
     }
-    
+
     void cleanup() override {
         // Set to nullptr INSIDE the if blocks to make this truly idempotent
         if (setup_real_) {
@@ -47,79 +51,158 @@ public:
             output_buffer_ = nullptr;
         }
     }
-    
+
     void forward(const float* in, std::complex<float>* out) override {
         std::copy(in, in + size_, input_buffer_);
-        
-        pffft_transform_ordered(setup_real_, input_buffer_, output_buffer_,
-                               work_buffer_, PFFFT_FORWARD);
-        
-        // PFFFT stores real FFT in a packed format: [r0, r1, i1, r2, i2, ..., rN/2]
-        // Convert to standard complex format
+
+        pffft_transform_ordered(setup_real_,
+                                input_buffer_,
+                                output_buffer_,
+                                work_buffer_,
+                                PFFFT_FORWARD);
+
+        // PFFFT stores real FFT in a packed format: [r0, r1, i1, r2, i2, ...,
+        // rN/2] Convert to standard complex format
         out[0] = std::complex<float>(output_buffer_[0], 0);
-        for (int i = 1; i < size_/2; ++i) {
-            out[i] = std::complex<float>(output_buffer_[2*i], output_buffer_[2*i+1]);
+        for (int i = 1; i < size_ / 2; ++i) {
+            out[i] = std::complex<float>(output_buffer_[2 * i],
+                                         output_buffer_[2 * i + 1]);
         }
-        out[size_/2] = std::complex<float>(output_buffer_[1], 0);
+        out[size_ / 2] = std::complex<float>(output_buffer_[1], 0);
     }
-    
+
     void backward(const std::complex<float>* in, float* out) override {
         // Convert from standard complex format to PFFFT packed format
         output_buffer_[0] = in[0].real();
-        output_buffer_[1] = in[size_/2].real();
-        for (int i = 1; i < size_/2; ++i) {
-            output_buffer_[2*i] = in[i].real();
-            output_buffer_[2*i+1] = in[i].imag();
+        output_buffer_[1] = in[size_ / 2].real();
+        for (int i = 1; i < size_ / 2; ++i) {
+            output_buffer_[2 * i] = in[i].real();
+            output_buffer_[2 * i + 1] = in[i].imag();
         }
-        
-        pffft_transform_ordered(setup_real_, output_buffer_, input_buffer_,
-                               work_buffer_, PFFFT_BACKWARD);
-        
+
+        pffft_transform_ordered(setup_real_,
+                                output_buffer_,
+                                input_buffer_,
+                                work_buffer_,
+                                PFFFT_BACKWARD);
+
         // Normalize
         for (int i = 0; i < size_; ++i) {
             out[i] = input_buffer_[i] / size_;
         }
     }
-    
-    void forward_complex(const std::complex<float>* in, 
-                        std::complex<float>* out) override {
-        std::copy(reinterpret_cast<const float*>(in),
-                 reinterpret_cast<const float*>(in) + size_ * 2,
-                 input_buffer_);
-        
-        pffft_transform_ordered(setup_complex_, input_buffer_, output_buffer_,
-                               work_buffer_, PFFFT_FORWARD);
-        
-        std::copy(output_buffer_, output_buffer_ + size_ * 2,
-                 reinterpret_cast<float*>(out));
-    }
-    
-    void backward_complex(const std::complex<float>* in, 
+
+    void forward_complex(const std::complex<float>* in,
                          std::complex<float>* out) override {
         std::copy(reinterpret_cast<const float*>(in),
-                 reinterpret_cast<const float*>(in) + size_ * 2,
-                 input_buffer_);
-        
-        pffft_transform_ordered(setup_complex_, input_buffer_, output_buffer_,
-                               work_buffer_, PFFFT_BACKWARD);
-        
+                  reinterpret_cast<const float*>(in) + size_ * 2,
+                  input_buffer_);
+
+        pffft_transform_ordered(setup_complex_,
+                                input_buffer_,
+                                output_buffer_,
+                                work_buffer_,
+                                PFFFT_FORWARD);
+
+        std::copy(output_buffer_,
+                  output_buffer_ + size_ * 2,
+                  reinterpret_cast<float*>(out));
+    }
+
+    void backward_complex(const std::complex<float>* in,
+                          std::complex<float>* out) override {
+        std::copy(reinterpret_cast<const float*>(in),
+                  reinterpret_cast<const float*>(in) + size_ * 2,
+                  input_buffer_);
+
+        pffft_transform_ordered(setup_complex_,
+                                input_buffer_,
+                                output_buffer_,
+                                work_buffer_,
+                                PFFFT_BACKWARD);
+
         // Normalize
         for (int i = 0; i < size_ * 2; ++i) {
             output_buffer_[i] /= size_;
         }
-        
-        std::copy(output_buffer_, output_buffer_ + size_ * 2,
-                 reinterpret_cast<float*>(out));
+
+        std::copy(output_buffer_,
+                  output_buffer_ + size_ * 2,
+                  reinterpret_cast<float*>(out));
     }
-    
-    std::string name() const override { return "PFFFT"; }
-    
+
+    // ── Staging-buffer interface ─────────────────────────────────────────────
+    // Expose PFFFT's own aligned input_buffer_ so the benchmark can write
+    // test data directly into it, eliminating the copy in forward()/backward().
+    float* staging_real() override {
+        return input_buffer_;
+    }
+    // For C2C, the interleaved floats are also in input_buffer_
+    std::complex<float>* staging_complex() override {
+        return reinterpret_cast<std::complex<float>*>(input_buffer_);
+    }
+
+    void forward_inplace(std::complex<float>* out) override {
+        // Data is already in input_buffer_ — transform directly
+        pffft_transform_ordered(setup_real_,
+                                input_buffer_,
+                                output_buffer_,
+                                work_buffer_,
+                                PFFFT_FORWARD);
+        out[0] = std::complex<float>(output_buffer_[0], 0.0f);
+        for (int i = 1; i < size_ / 2; ++i)
+            out[i] = std::complex<float>(output_buffer_[2 * i],
+                                         output_buffer_[2 * i + 1]);
+        out[size_ / 2] = std::complex<float>(output_buffer_[1], 0.0f);
+    }
+
+    void backward_inplace(float* out) override {
+        // input_buffer_ already holds the packed complex input
+        pffft_transform_ordered(setup_real_,
+                                input_buffer_,
+                                output_buffer_,
+                                work_buffer_,
+                                PFFFT_BACKWARD);
+        const float inv = 1.0f / static_cast<float>(size_);
+        for (int i = 0; i < size_; ++i)
+            out[i] = output_buffer_[i] * inv;
+    }
+
+    void forward_complex_inplace(std::complex<float>* out) override {
+        pffft_transform_ordered(setup_complex_,
+                                input_buffer_,
+                                output_buffer_,
+                                work_buffer_,
+                                PFFFT_FORWARD);
+        std::copy(output_buffer_,
+                  output_buffer_ + size_ * 2,
+                  reinterpret_cast<float*>(out));
+    }
+
+    void backward_complex_inplace(std::complex<float>* out) override {
+        pffft_transform_ordered(setup_complex_,
+                                input_buffer_,
+                                output_buffer_,
+                                work_buffer_,
+                                PFFFT_BACKWARD);
+        const float inv = 1.0f / static_cast<float>(size_);
+        for (int i = 0; i < size_ * 2; ++i)
+            output_buffer_[i] *= inv;
+        std::copy(output_buffer_,
+                  output_buffer_ + size_ * 2,
+                  reinterpret_cast<float*>(out));
+    }
+
+    std::string name() const override {
+        return "PFFFT";
+    }
+
     bool supports_size(int size) const override {
         // PFFFT requires sizes to be multiples of 16 for optimal performance
         return (size % 16 == 0) || (size >= 32 && (size & (size - 1)) == 0);
     }
-    
-private:
+
+   private:
     PFFFT_Setup* setup_real_ = nullptr;
     PFFFT_Setup* setup_complex_ = nullptr;
     float* work_buffer_ = nullptr;

@@ -35,7 +35,7 @@ endif()
 # ============================================================================
 # Options - FFT Backend Selection
 # ============================================================================
-option(ENABLE_FFTW        "Enable FFTW backend"        ON)
+option(ENABLE_FFTW        "Enable FFTW backend"        OFF)
 option(ENABLE_KISSFFT     "Enable KissFFT backend"     OFF)
 option(ENABLE_POCKETFFT   "Enable PocketFFT backend"   OFF)
 option(ENABLE_PFFFT       "Enable PFFFT backend"       ON)

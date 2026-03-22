@@ -381,18 +381,27 @@ class FFTBenchmark {
     // -------------------------------------------------------------------------
     BenchmarkResult benchmark_forward(FFTBackend& backend, int size) {
         auto inputs = make_input_buffers<float>(size);
-        // Single output buffer — reused every iteration (no rotation needed
-        // since outputs are write-only and we only read via the sink)
         std::vector<std::complex<float>> output(size / 2 + 1);
-
         volatile float sink = 0.0f;
 
-        auto result =
-            run_timed(backend.name(), size, "R2C Forward", [&](int buf_idx) {
-                backend.forward(inputs[buf_idx].data(), output.data());
-                sink += output[0].real();  // prevent dead-code elimination
-            });
-
+        BenchmarkResult result;
+        if (float* stage = backend.staging_real()) {
+            // Backend exposes its own aligned buffer — write directly into it,
+            // then call the no-copy inplace variant.
+            result = run_timed(
+                backend.name(), size, "R2C Forward", [&](int buf_idx) {
+                    std::copy(
+                        inputs[buf_idx].begin(), inputs[buf_idx].end(), stage);
+                    backend.forward_inplace(output.data());
+                    sink += output[0].real();
+                });
+        } else {
+            result = run_timed(
+                backend.name(), size, "R2C Forward", [&](int buf_idx) {
+                    backend.forward(inputs[buf_idx].data(), output.data());
+                    sink += output[0].real();
+                });
+        }
         (void)sink;
         return result;
     }
@@ -400,15 +409,24 @@ class FFTBenchmark {
     BenchmarkResult benchmark_backward(FFTBackend& backend, int size) {
         auto inputs = make_input_buffers<std::complex<float>>(size / 2 + 1);
         std::vector<float> output(size);
-
         volatile float sink = 0.0f;
 
-        auto result =
-            run_timed(backend.name(), size, "C2R Backward", [&](int buf_idx) {
-                backend.backward(inputs[buf_idx].data(), output.data());
-                sink += output[0];
-            });
-
+        BenchmarkResult result;
+        if (std::complex<float>* stage = backend.staging_complex()) {
+            result = run_timed(
+                backend.name(), size, "C2R Backward", [&](int buf_idx) {
+                    std::copy(
+                        inputs[buf_idx].begin(), inputs[buf_idx].end(), stage);
+                    backend.backward_inplace(output.data());
+                    sink += output[0];
+                });
+        } else {
+            result = run_timed(
+                backend.name(), size, "C2R Backward", [&](int buf_idx) {
+                    backend.backward(inputs[buf_idx].data(), output.data());
+                    sink += output[0];
+                });
+        }
         (void)sink;
         return result;
     }
@@ -416,15 +434,25 @@ class FFTBenchmark {
     BenchmarkResult benchmark_forward_complex(FFTBackend& backend, int size) {
         auto inputs = make_input_buffers<std::complex<float>>(size);
         std::vector<std::complex<float>> output(size);
-
         volatile float sink = 0.0f;
 
-        auto result =
-            run_timed(backend.name(), size, "C2C Forward", [&](int buf_idx) {
-                backend.forward_complex(inputs[buf_idx].data(), output.data());
-                sink += output[0].real();
-            });
-
+        BenchmarkResult result;
+        if (std::complex<float>* stage = backend.staging_complex()) {
+            result = run_timed(
+                backend.name(), size, "C2C Forward", [&](int buf_idx) {
+                    std::copy(
+                        inputs[buf_idx].begin(), inputs[buf_idx].end(), stage);
+                    backend.forward_complex_inplace(output.data());
+                    sink += output[0].real();
+                });
+        } else {
+            result = run_timed(
+                backend.name(), size, "C2C Forward", [&](int buf_idx) {
+                    backend.forward_complex(inputs[buf_idx].data(),
+                                            output.data());
+                    sink += output[0].real();
+                });
+        }
         (void)sink;
         return result;
     }
@@ -432,15 +460,25 @@ class FFTBenchmark {
     BenchmarkResult benchmark_backward_complex(FFTBackend& backend, int size) {
         auto inputs = make_input_buffers<std::complex<float>>(size);
         std::vector<std::complex<float>> output(size);
-
         volatile float sink = 0.0f;
 
-        auto result =
-            run_timed(backend.name(), size, "C2C Backward", [&](int buf_idx) {
-                backend.backward_complex(inputs[buf_idx].data(), output.data());
-                sink += output[0].real();
-            });
-
+        BenchmarkResult result;
+        if (std::complex<float>* stage = backend.staging_complex()) {
+            result = run_timed(
+                backend.name(), size, "C2C Backward", [&](int buf_idx) {
+                    std::copy(
+                        inputs[buf_idx].begin(), inputs[buf_idx].end(), stage);
+                    backend.backward_complex_inplace(output.data());
+                    sink += output[0].real();
+                });
+        } else {
+            result = run_timed(
+                backend.name(), size, "C2C Backward", [&](int buf_idx) {
+                    backend.backward_complex(inputs[buf_idx].data(),
+                                             output.data());
+                    sink += output[0].real();
+                });
+        }
         (void)sink;
         return result;
     }
