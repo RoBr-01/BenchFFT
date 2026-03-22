@@ -2,6 +2,14 @@
 
 A comprehensive benchmark suite for comparing FFT library performance in C++.
 
+
+# Disclaimer
+
+This is a small personal project to compare some common FFT libraries for use in my own software.  
+Much of this code was generated with the help of an AI, so mistakes are possible.  
+As the MIT license explicitly states, no warranty is provided.
+
+
 ## Supported Libraries
 
 - **FFTW3** - The "Fastest Fourier Transform in the West"
@@ -10,7 +18,6 @@ A comprehensive benchmark suite for comparing FFT library performance in C++.
 - **PFFFT** - Pretty Fast FFT (SIMD-optimized)
 - **KFR** - Fast, modern C++ DSP framework
 - **Signalsmith** - Audio DSP library with FFT
-- **HiFiLoFi** - Lightweight FFT library
 - **JUCE** - Professional audio framework
 
 ## Features
@@ -26,32 +33,6 @@ A comprehensive benchmark suite for comparing FFT library performance in C++.
 ## Building
 
 ### Prerequisites
-
-Install the libraries you want to benchmark. On Ubuntu/Debian:
-
-```bash
-# FFTW
-sudo apt-get install libfftw3-dev
-
-# KissFFT
-git clone https://github.com/mborgerding/kissfft
-cd kissfft && mkdir build && cd build
-cmake .. && make && sudo make install
-
-# PocketFFT (header-only)
-git clone https://github.com/mreineck/pocketfft
-sudo cp pocketfft/pocketfft_hdronly.h /usr/local/include/
-
-# PFFFT
-git clone https://github.com/marton78/pffft
-cd pffft && mkdir build && cd build
-cmake .. && make && sudo make install
-
-# KFR
-git clone https://github.com/kfrlib/kfr
-cd kfr && mkdir build && cd build
-cmake .. -DENABLE_TESTS=OFF && make && sudo make install
-```
 
 ### Compile the Benchmark
 
