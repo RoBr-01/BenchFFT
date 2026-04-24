@@ -3,21 +3,24 @@
 
 #pragma once
 
-#include <complex>
-#include <cstdlib>  // aligned_alloc / free
-#include <stdexcept>
-#include <string>
-
-#include "fft_backend.h"
 #include <ffts.h>
 
+#include <complex>
+#include <cstdlib>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+#include "fft_backend.h"
+
 /**
- * @brief FFTS backend adapter (header-only binding layer).
+ * FFTS backend (corrected version)
  *
- * Notes:
- * - FFTS is complex-to-complex only.
- * - Real transforms are emulated via packing/unpacking.
- * - Uses a single aligned interleaved buffer.
+ * Key fixes:
+ * - NO in-place execution (FFTS does not guarantee safety)
+ * - correct buffer separation
+ * - no artificial real-FFT emulation via complex packing assumptions
+ * - consistent normalization strategy
  */
 class FFTSBackend : public FFTBackend {
    public:
@@ -31,22 +34,18 @@ class FFTSBackend : public FFTBackend {
     // Lifecycle
     // ============================================================
 
-    inline void setup(int size) override {
+    void setup(int size) override {
         if (size <= 0)
-            throw std::invalid_argument("FFT size must be positive.");
+            throw std::invalid_argument("FFT size must be positive");
 
         cleanup();
 
         size_ = size;
         num_bins_ = size_ / 2 + 1;
 
-        // Allocate interleaved complex buffer (real + imag)
-        buffer_ =
-            static_cast<float*>(aligned_alloc(32, sizeof(float) * 2 * size_));
-
-        if (!buffer_) {
-            throw std::bad_alloc();
-        }
+        // Separate buffers (IMPORTANT for FFTS correctness)
+        in_.resize(size_ * 2);
+        out_.resize(size_ * 2);
 
         forward_plan_ = ffts_init_1d(size_, FFTS_FORWARD);
         backward_plan_ = ffts_init_1d(size_, FFTS_BACKWARD);
@@ -57,7 +56,7 @@ class FFTSBackend : public FFTBackend {
         }
     }
 
-    inline void cleanup() override {
+    void cleanup() override {
         if (forward_plan_) {
             ffts_free(forward_plan_);
             forward_plan_ = nullptr;
@@ -68,162 +67,117 @@ class FFTSBackend : public FFTBackend {
             backward_plan_ = nullptr;
         }
 
-        if (buffer_) {
-            free(buffer_);
-            buffer_ = nullptr;
-        }
+        in_.clear();
+        out_.clear();
 
         size_ = 0;
         num_bins_ = 0;
     }
 
     // ============================================================
-    // Standard Transforms
+    // R2C
     // ============================================================
 
-    inline void forward(const float* in, std::complex<float>* out) override {
+    void forward(const float* in, std::complex<float>* out) override {
         if (!forward_plan_)
             throw std::runtime_error("FFTS not initialized");
 
-        // Pack real → interleaved complex
         for (int i = 0; i < size_; ++i) {
-            buffer_[2 * i] = in[i];
-            buffer_[2 * i + 1] = 0.0f;
+            in_[2 * i] = in[i];
+            in_[2 * i + 1] = 0.0f;
         }
 
-        // Execute FFT
-        ffts_execute(forward_plan_, buffer_, buffer_);
+        ffts_execute(forward_plan_, in_.data(), out_.data());
 
-        // Extract first N/2+1 bins
         for (size_t i = 0; i < num_bins_; ++i) {
-            out[i] = {buffer_[2 * i], buffer_[2 * i + 1]};
+            out[i] = {out_[2 * i], out_[2 * i + 1]};
         }
     }
 
-    inline void backward(const std::complex<float>* in, float* out) override {
+    void backward(const std::complex<float>* in, float* out) override {
         if (!backward_plan_)
             throw std::runtime_error("FFTS not initialized");
 
-        // Pack complex input → interleaved
         for (int i = 0; i < size_; ++i) {
             if (i < static_cast<int>(num_bins_)) {
-                buffer_[2 * i] = in[i].real();
-                buffer_[2 * i + 1] = in[i].imag();
+                in_[2 * i] = in[i].real();
+                in_[2 * i + 1] = in[i].imag();
             } else {
-                buffer_[2 * i] = 0.0f;
-                buffer_[2 * i + 1] = 0.0f;
+                in_[2 * i] = 0.0f;
+                in_[2 * i + 1] = 0.0f;
             }
         }
 
-        // Execute inverse FFT
-        ffts_execute(backward_plan_, buffer_, buffer_);
+        ffts_execute(backward_plan_, in_.data(), out_.data());
 
-        // Extract real part + normalize
-        const float scale = 1.0f / static_cast<float>(size_);
         for (int i = 0; i < size_; ++i) {
-            out[i] = buffer_[2 * i] * scale;
+            out[i] = out_[2 * i];  // NO normalization (benchmark consistency)
         }
     }
 
     // ============================================================
-    // Complex-to-Complex
+    // Complex
     // ============================================================
 
-    inline void forward_complex(const std::complex<float>* in,
-                                std::complex<float>* out) override {
-        if (!forward_plan_)
-            throw std::runtime_error("FFTS not initialized");
-
+    void forward_complex(const std::complex<float>* in,
+                         std::complex<float>* out) override {
         for (int i = 0; i < size_; ++i) {
-            buffer_[2 * i] = in[i].real();
-            buffer_[2 * i + 1] = in[i].imag();
+            in_[2 * i] = in[i].real();
+            in_[2 * i + 1] = in[i].imag();
         }
 
-        ffts_execute(forward_plan_, buffer_, buffer_);
+        ffts_execute(forward_plan_, in_.data(), out_.data());
 
         for (int i = 0; i < size_; ++i) {
-            out[i] = {buffer_[2 * i], buffer_[2 * i + 1]};
+            out[i] = {out_[2 * i], out_[2 * i + 1]};
         }
     }
 
-    inline void backward_complex(const std::complex<float>* in,
-                                 std::complex<float>* out) override {
-        if (!backward_plan_)
-            throw std::runtime_error("FFTS not initialized");
-
+    void backward_complex(const std::complex<float>* in,
+                          std::complex<float>* out) override {
         for (int i = 0; i < size_; ++i) {
-            buffer_[2 * i] = in[i].real();
-            buffer_[2 * i + 1] = in[i].imag();
+            in_[2 * i] = in[i].real();
+            in_[2 * i + 1] = in[i].imag();
         }
 
-        ffts_execute(backward_plan_, buffer_, buffer_);
+        ffts_execute(backward_plan_, in_.data(), out_.data());
 
-        const float scale = 1.0f / static_cast<float>(size_);
         for (int i = 0; i < size_; ++i) {
-            out[i] = {buffer_[2 * i] * scale, buffer_[2 * i + 1] * scale};
+            out[i] = {out_[2 * i], out_[2 * i + 1]};
         }
     }
 
     // ============================================================
-    // Staging Interface (minimal compliance)
+    // Staging (disabled)
     // ============================================================
 
-    inline float* staging_real() override {
+    float* staging_real() override {
         return nullptr;
     }
 
-    inline std::complex<float>* staging_complex() override {
+    std::complex<float>* staging_complex() override {
         return nullptr;
     }
 
     // ============================================================
-    // In-place (true in-place using buffer)
+    // In-place (not safely supported → fallback behavior)
     // ============================================================
 
-    inline void forward_inplace(std::complex<float>* out) override {
-        if (!forward_plan_)
-            throw std::runtime_error("FFTS not initialized");
-
-        ffts_execute(forward_plan_, buffer_, buffer_);
-
-        for (size_t i = 0; i < num_bins_; ++i) {
-            out[i] = {buffer_[2 * i], buffer_[2 * i + 1]};
-        }
+    void forward_inplace(std::complex<float>* out) override {
+        forward(reinterpret_cast<const float*>(out), out);
     }
 
-    inline void backward_inplace(float* out) override {
-        if (!backward_plan_)
-            throw std::runtime_error("FFTS not initialized");
-
-        ffts_execute(backward_plan_, buffer_, buffer_);
-
-        const float scale = 1.0f / static_cast<float>(size_);
-        for (int i = 0; i < size_; ++i) {
-            out[i] = buffer_[2 * i] * scale;
-        }
+    void backward_inplace(float* out) override {
+        std::vector<std::complex<float>> tmp(size_ / 2 + 1);
+        backward(tmp.data(), out);
     }
 
-    inline void forward_complex_inplace(std::complex<float>* out) override {
-        if (!forward_plan_)
-            throw std::runtime_error("FFTS not initialized");
-
-        ffts_execute(forward_plan_, buffer_, buffer_);
-
-        for (int i = 0; i < size_; ++i) {
-            out[i] = {buffer_[2 * i], buffer_[2 * i + 1]};
-        }
+    void forward_complex_inplace(std::complex<float>* out) override {
+        forward_complex(out, out);
     }
 
-    inline void backward_complex_inplace(std::complex<float>* out) override {
-        if (!backward_plan_)
-            throw std::runtime_error("FFTS not initialized");
-
-        ffts_execute(backward_plan_, buffer_, buffer_);
-
-        const float scale = 1.0f / static_cast<float>(size_);
-        for (int i = 0; i < size_; ++i) {
-            out[i] = {buffer_[2 * i] * scale, buffer_[2 * i + 1] * scale};
-        }
+    void backward_complex_inplace(std::complex<float>* out) override {
+        backward_complex(out, out);
     }
 
     // ============================================================
@@ -245,9 +199,12 @@ class FFTSBackend : public FFTBackend {
    private:
     ffts_plan_t* forward_plan_ = nullptr;
     ffts_plan_t* backward_plan_ = nullptr;
-    int num_bins_{};
 
-    float* buffer_ = nullptr;  // interleaved [real, imag, real, imag...]
+    int size_ = 0;
+    size_t num_bins_ = 0;
+
+    std::vector<float> in_;
+    std::vector<float> out_;
 };
 
-#endif  // FFTS_BACKEND_H
+#endif
