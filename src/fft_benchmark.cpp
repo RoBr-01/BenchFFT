@@ -619,7 +619,7 @@ class FFTBenchmark {
 // ============================================================================
 
 int main(int argc, char* argv[]) {
-    std::vector<int> sizes = {128, 256, 512, 1024, 2048, 4096, 8192, 16384};
+    std::vector<int> sizes = {32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384};
 
     // Usage: fft_benchmark [warmup] [iterations] [num_input_buffers]
     int warmup = 50;
