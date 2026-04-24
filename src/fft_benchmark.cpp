@@ -25,6 +25,9 @@
 #ifdef HAVE_HIFILOFI
 #include "hifilofi_backend.h"
 #endif
+#ifdef HAVE_FFTS
+#include "ffts_backend.h"
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -655,6 +658,9 @@ int main(int argc, char* argv[]) {
 #endif
 #ifdef HAVE_JUCE
     benchmark.add_backend(std::make_unique<JUCEBackend>());
+#endif
+#ifdef HAVE_FFTS
+    benchmark.add_backend(std::make_unique<FFTSBackend>());
 #endif
 
     benchmark.run_benchmarks(sizes);

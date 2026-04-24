@@ -5,7 +5,7 @@ if(POLICY CMP0169)
     cmake_policy(SET CMP0169 OLD)
 endif()
 
-project(fft_benchmark 
+project(fft_benchmark
     VERSION 1.0.0
     LANGUAGES CXX C
     DESCRIPTION "FFT Library Benchmark Suite"
@@ -35,13 +35,14 @@ endif()
 # ============================================================================
 # Options - FFT Backend Selection
 # ============================================================================
-option(ENABLE_FFTW        "Enable FFTW backend"        OFF)
-option(ENABLE_KISSFFT     "Enable KissFFT backend"     OFF)
-option(ENABLE_POCKETFFT   "Enable PocketFFT backend"   OFF)
-option(ENABLE_PFFFT       "Enable PFFFT backend"       ON)
-option(ENABLE_KFR         "Enable KFR backend"         OFF)  # Broken on AppleClang 17 / ARM64 (vec.hpp issue in KFR 6.0.2)
+option(ENABLE_FFTW "Enable FFTW backend" ON)
+option(ENABLE_KISSFFT "Enable KissFFT backend" ON)
+option(ENABLE_POCKETFFT "Enable PocketFFT backend" ON)
+option(ENABLE_PFFFT "Enable PFFFT backend" ON)
+option(ENABLE_KFR "Enable KFR backend" OFF) # Broken on AppleClang 17 / ARM64 (vec.hpp issue in KFR 6.0.2)
 option(ENABLE_SIGNALSMITH "Enable Signalsmith backend" ON)
-option(ENABLE_JUCE        "Enable JUCE backend"        ON)
+option(ENABLE_JUCE "Enable JUCE backend" ON)
+option(ENABLE_FFTS "Enable FFTS backend" ON)
 
 # ============================================================================
 # CPM - CMake Package Manager
@@ -55,13 +56,13 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/CPM.cmake")
 # ============================================================================
 # Main Executable
 # ============================================================================
-add_executable(fft_benchmark 
+add_executable(fft_benchmark
     src/fft_benchmark.cpp
 )
 
-target_include_directories(fft_benchmark 
-    PRIVATE 
-        ${CMAKE_CURRENT_SOURCE_DIR}/inc
+target_include_directories(fft_benchmark
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/inc
 )
 
 # ============================================================================
@@ -69,42 +70,42 @@ target_include_directories(fft_benchmark
 # ============================================================================
 if(ENABLE_FFTW)
     find_package(PkgConfig QUIET)
-    
+
     if(PkgConfig_FOUND)
         pkg_check_modules(FFTW3F fftw3f)
     endif()
-    
+
     if(NOT FFTW3F_FOUND)
-        find_path(FFTW3_INCLUDE_DIR 
+        find_path(FFTW3_INCLUDE_DIR
             NAMES fftw3.h
             PATHS
-                /usr/local/include
-                /usr/include
-                /opt/homebrew/include
-                /opt/local/include
+            /usr/local/include
+            /usr/include
+            /opt/homebrew/include
+            /opt/local/include
         )
-        
+
         find_library(FFTW3F_LIBRARY
             NAMES fftw3f libfftw3f.dylib
             PATHS
-                /usr/local/lib
-                /usr/lib
-                /opt/homebrew/lib
-                /opt/local/lib
+            /usr/local/lib
+            /usr/lib
+            /opt/homebrew/lib
+            /opt/local/lib
         )
-        
+
         if(FFTW3_INCLUDE_DIR AND FFTW3F_LIBRARY)
             set(FFTW3F_FOUND TRUE)
             set(FFTW3F_INCLUDE_DIRS ${FFTW3_INCLUDE_DIR})
             set(FFTW3F_LINK_LIBRARIES ${FFTW3F_LIBRARY})
         endif()
     endif()
-    
+
     if(FFTW3F_FOUND)
         message(STATUS "✓ FFTW found")
         message(STATUS "  Include: ${FFTW3F_INCLUDE_DIRS}")
         message(STATUS "  Library: ${FFTW3F_LINK_LIBRARIES}")
-        
+
         target_include_directories(fft_benchmark PRIVATE ${FFTW3F_INCLUDE_DIRS})
         target_link_libraries(fft_benchmark PRIVATE ${FFTW3F_LINK_LIBRARIES})
         target_compile_definitions(fft_benchmark PRIVATE HAVE_FFTW)
@@ -123,12 +124,12 @@ if(ENABLE_KISSFFT)
         GITHUB_REPOSITORY mborgerding/kissfft
         GIT_TAG 131.1.0
         OPTIONS
-            "KISSFFT_DATATYPE float"
-            "KISSFFT_STATIC ON"
-            "KISSFFT_TEST OFF"
-            "KISSFFT_TOOLS OFF"
+        "KISSFFT_DATATYPE float"
+        "KISSFFT_STATIC ON"
+        "KISSFFT_TEST OFF"
+        "KISSFFT_TOOLS OFF"
     )
-    
+
     if(kissfft_ADDED)
         message(STATUS "✓ KissFFT added via CPM")
         target_link_libraries(fft_benchmark PRIVATE kissfft::kissfft)
@@ -149,7 +150,7 @@ if(ENABLE_POCKETFFT)
         GIT_TAG cpp
         DOWNLOAD_ONLY YES
     )
-    
+
     if(pocketfft_ADDED)
         message(STATUS "✓ PocketFFT added via CPM")
         target_include_directories(fft_benchmark PRIVATE ${pocketfft_SOURCE_DIR})
@@ -170,29 +171,29 @@ if(ENABLE_PFFFT)
         GIT_TAG master
         DOWNLOAD_ONLY YES
     )
-    
+
     if(pffft_ADDED)
         message(STATUS "✓ PFFFT added via CPM")
-        
+
         add_library(pffft_lib STATIC
             ${pffft_SOURCE_DIR}/src/pffft.c
             ${pffft_SOURCE_DIR}/src/pffft_double.c
             ${pffft_SOURCE_DIR}/src/pffft_common.c
         )
-        
+
         # Sources use bare includes like "pffft.h" and "pffft_double.h".
         # Public headers live in include/pffft/, internal headers in src/.
         # Both must be on the include path so the .c files can find everything.
         target_include_directories(pffft_lib
-            PUBLIC  ${pffft_SOURCE_DIR}/include/pffft   # exposes pffft.h to consumers too
-            PRIVATE ${pffft_SOURCE_DIR}/include/pffft   # so .c files find pffft_double.h etc.
-                    ${pffft_SOURCE_DIR}/src              # internal: pffft_priv_impl.h, fmv.h, simd/
+            PUBLIC ${pffft_SOURCE_DIR}/include/pffft # exposes pffft.h to consumers too
+            PRIVATE ${pffft_SOURCE_DIR}/include/pffft # so .c files find pffft_double.h etc.
+            ${pffft_SOURCE_DIR}/src # internal: pffft_priv_impl.h, fmv.h, simd/
         )
-        
+
         if(UNIX)
             target_link_libraries(pffft_lib PRIVATE m)
         endif()
-        
+
         target_link_libraries(fft_benchmark PRIVATE pffft_lib)
         target_compile_definitions(fft_benchmark PRIVATE HAVE_PFFFT)
     else()
@@ -210,19 +211,19 @@ if(ENABLE_KFR)
     else()
         set(KFR_ARCH "sse2" CACHE STRING "" FORCE)
     endif()
-    
+
     set(KFR_ENABLE_MULTIARCH OFF CACHE BOOL "" FORCE)
     set(KFR_ENABLE_DETECT_CPU OFF CACHE BOOL "" FORCE)
-    
+
     CPMAddPackage(
         NAME kfr
         GITHUB_REPOSITORY kfrlib/kfr
         GIT_TAG 6.0.2
         OPTIONS
-            "KFR_ENABLE_MULTIARCH OFF"
-            "KFR_ENABLE_DETECT_CPU OFF"
+        "KFR_ENABLE_MULTIARCH OFF"
+        "KFR_ENABLE_DETECT_CPU OFF"
     )
-    
+
     if(kfr_ADDED)
         message(STATUS "✓ KFR added via CPM")
         target_link_libraries(fft_benchmark PRIVATE kfr kfr_dft)
@@ -243,7 +244,7 @@ if(ENABLE_SIGNALSMITH)
         GIT_TAG main
         DOWNLOAD_ONLY YES
     )
-    
+
     if(signalsmith_dsp_ADDED)
         message(STATUS "✓ Signalsmith DSP added via CPM")
         target_include_directories(fft_benchmark PRIVATE ${signalsmith_dsp_SOURCE_DIR})
@@ -259,22 +260,22 @@ endif()
 # ============================================================================
 if(ENABLE_JUCE)
     message(STATUS "Fetching JUCE (this may take a while, it's a large framework)...")
-    
+
     CPMAddPackage(
         NAME juce
         GITHUB_REPOSITORY juce-framework/JUCE
         GIT_TAG 8.0.0
         DOWNLOAD_ONLY YES
     )
-    
+
     if(juce_ADDED)
         message(STATUS "✓ JUCE downloaded via CPM")
-        
-        target_include_directories(fft_benchmark PRIVATE 
+
+        target_include_directories(fft_benchmark PRIVATE
             ${juce_SOURCE_DIR}/modules
         )
-        
-        target_compile_definitions(fft_benchmark PRIVATE 
+
+        target_compile_definitions(fft_benchmark PRIVATE
             HAVE_JUCE
             JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
             JUCE_STANDALONE_APPLICATION=1
@@ -282,7 +283,7 @@ if(ENABLE_JUCE)
             JUCE_WEB_BROWSER=0
             JUCE_MODAL_LOOPS_PERMITTED=0
         )
-        
+
         # ----------------------------------------------------------------
         # JUCE module unity-build sources
         # ----------------------------------------------------------------
@@ -292,14 +293,14 @@ if(ENABLE_JUCE)
             ${juce_SOURCE_DIR}/modules/juce_audio_formats/juce_audio_formats.cpp
             ${juce_SOURCE_DIR}/modules/juce_dsp/juce_dsp.cpp
         )
-        
+
         if(APPLE)
             # JUCE's ObjC++ unity files must be compiled as Objective-C++.
             # We set this per-file so the main benchmark source is unaffected.
             set_source_files_properties(${JUCE_SOURCES} PROPERTIES
                 COMPILE_FLAGS "-x objective-c++"
             )
-            
+
             target_link_libraries(fft_benchmark PRIVATE
                 "-framework Accelerate"
                 "-framework AudioToolbox"
@@ -330,12 +331,12 @@ if(ENABLE_JUCE)
             message(STATUS "  juce_stubs.cpp not found — generating a minimal stub")
             set(JUCE_STUBS_SRC "${CMAKE_CURRENT_BINARY_DIR}/juce_stubs.cpp")
             file(WRITE "${JUCE_STUBS_SRC}"
-"// Auto-generated by CMake — provides JUCE compilation timestamp symbols.\n"
-"namespace juce\n"
-"{\n"
-"    extern const char* const juce_compilationDate = __DATE__;\n"
-"    extern const char* const juce_compilationTime = __TIME__;\n"
-"}\n"
+                "// Auto-generated by CMake — provides JUCE compilation timestamp symbols.\n"
+                "namespace juce\n"
+                "{\n"
+                "    extern const char* const juce_compilationDate = __DATE__;\n"
+                "    extern const char* const juce_compilationTime = __TIME__;\n"
+                "}\n"
             )
         endif()
 
@@ -347,13 +348,45 @@ if(ENABLE_JUCE)
             ${JUCE_SOURCES}
             ${JUCE_STUBS_SRC}
         )
-        
+
         message(STATUS "    JUCE modules: juce_core, juce_audio_basics, juce_audio_formats, juce_dsp")
     else()
         message(WARNING "✗ JUCE could not be fetched")
         set(ENABLE_JUCE OFF)
     endif()
 endif()
+
+
+if(ENABLE_FFTS)
+
+    CPMAddPackage(
+        NAME FFTS
+        GITHUB_REPOSITORY RoBr-01/FFTS
+        GIT_TAG dev
+    )
+
+    if(FFTS_ADDED)
+        message(STATUS "✓ FFTS added via CPM (subdirectory build)")
+
+        # FFTS now defines its own target via its CMakeLists.txt
+        # Common names: ffts, FFTS, or ffts_static
+        # You MUST check your repo's actual target name.
+
+        target_link_libraries(fft_benchmark PRIVATE ffts)
+
+        target_include_directories(fft_benchmark PRIVATE
+            ${FFTS_SOURCE_DIR}/include
+        )
+
+        target_compile_definitions(fft_benchmark PRIVATE HAVE_FFTS)
+
+    else()
+        message(WARNING "✗ FFTS could not be fetched")
+        set(ENABLE_FFTS OFF)
+    endif()
+
+endif()
+
 
 # ============================================================================
 # Platform-specific Libraries
@@ -381,6 +414,7 @@ message(STATUS "  ${ENABLE_PFFFT}        PFFFT")
 message(STATUS "  ${ENABLE_KFR}        KFR")
 message(STATUS "  ${ENABLE_SIGNALSMITH}        Signalsmith")
 message(STATUS "  ${ENABLE_JUCE}        JUCE")
+message(STATUS "  ${ENABLE_FFTS}        FFTS")
 message(STATUS "")
 message(STATUS "To toggle backends:")
 message(STATUS "  cmake -DENABLE_FFTW=OFF -DENABLE_KFR=ON ..")
