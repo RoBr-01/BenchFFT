@@ -23,14 +23,70 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-# Optimization flags
+# ============================================================================
+# Global Optimization Flags (applied to ALL backends)
+# ============================================================================
+
+# Clear any existing flags to avoid duplication
+set(CMAKE_C_FLAGS "")
+set(CMAKE_CXX_FLAGS "")
+set(CMAKE_C_FLAGS_RELEASE "")
+set(CMAKE_CXX_FLAGS_RELEASE "")
+set(CMAKE_C_FLAGS_DEBUG "")
+set(CMAKE_CXX_FLAGS_DEBUG "")
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
+    # Release build flags
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+    set(CMAKE_C_FLAGS_RELEASE "-O3 -DNDEBUG")
+
+    # Debug build flags
     set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
+    set(CMAKE_C_FLAGS_DEBUG "-O0 -g")
+
+    # Architecture-specific optimization - detect CPU at compile time
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
+        if(APPLE)
+            # Apple Silicon - use apple-m1 optimization
+            set(ARCH_FLAGS "-mcpu=apple-m1 -mtune=native")
+            message(STATUS "Apple Silicon detected - optimizing for M1/M2/M3")
+        else()
+            # Linux ARM64
+            set(ARCH_FLAGS "-march=native -mtune=native")
+            message(STATUS "ARM64 detected - using -march=native")
+        endif()
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
+        set(ARCH_FLAGS "-march=native -mtune=native")
+        message(STATUS "x86_64 detected - using -march=native")
+    else()
+        set(ARCH_FLAGS "")
+        message(STATUS "Unknown architecture - using generic optimizations")
+    endif()
+
+    # Add architecture flags to release build
+    if(ARCH_FLAGS)
+        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} ${ARCH_FLAGS}")
+        set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} ${ARCH_FLAGS}")
+    endif()
+
+    # Additional performance flags for release (safe for most code)
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -ffast-math -funroll-loops")
+    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -ffast-math -funroll-loops")
+
 elseif(MSVC)
-    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /DNDEBUG")
+    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /DNDEBUG /arch:AVX2")
+    set(CMAKE_C_FLAGS_RELEASE "/O2 /DNDEBUG /arch:AVX2")
     set(CMAKE_CXX_FLAGS_DEBUG "/Od /Zi")
+    set(CMAKE_C_FLAGS_DEBUG "/Od /Zi")
 endif()
+
+# Set the flags for the current build type
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS_${CMAKE_BUILD_TYPE}}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_${CMAKE_BUILD_TYPE}}")
+
+message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "C flags: ${CMAKE_C_FLAGS}")
+message(STATUS "CXX flags: ${CMAKE_CXX_FLAGS}")
 
 # ============================================================================
 # Options - FFT Backend Selection
@@ -39,17 +95,14 @@ option(ENABLE_FFTW "Enable FFTW backend" ON)
 option(ENABLE_KISSFFT "Enable KissFFT backend" ON)
 option(ENABLE_POCKETFFT "Enable PocketFFT backend" ON)
 option(ENABLE_PFFFT "Enable PFFFT backend" ON)
-option(ENABLE_KFR "Enable KFR backend" OFF) # Broken on AppleClang 17 / ARM64 (vec.hpp issue in KFR 6.0.2)
+option(ENABLE_KFR "Enable KFR backend" OFF)
 option(ENABLE_SIGNALSMITH "Enable Signalsmith backend" ON)
 option(ENABLE_JUCE "Enable JUCE backend" ON)
-option(ENABLE_FFTS "Enable FFTS backend" ON)
+option(ENABLE_FFTS "Enable FFTS backend (x86_64 only)" ON)
 
 # ============================================================================
 # CPM - CMake Package Manager
 # ============================================================================
-# Vendored copy lives at cmake/CPM.cmake in the source tree.
-# Disable CPM's self-update mechanism - it tries to download a newer version
-# of itself at configure time which fails in offline/restricted environments.
 set(CPM_DONT_UPDATE_MODULE_PATH ON CACHE BOOL "" FORCE)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/CPM.cmake")
 
@@ -86,7 +139,7 @@ if(ENABLE_FFTW)
         )
 
         find_library(FFTW3F_LIBRARY
-            NAMES fftw3f libfftw3f.dylib
+            NAMES fftw3f libfftw3f
             PATHS
             /usr/local/lib
             /usr/lib
@@ -103,9 +156,6 @@ if(ENABLE_FFTW)
 
     if(FFTW3F_FOUND)
         message(STATUS "✓ FFTW found")
-        message(STATUS "  Include: ${FFTW3F_INCLUDE_DIRS}")
-        message(STATUS "  Library: ${FFTW3F_LINK_LIBRARIES}")
-
         target_include_directories(fft_benchmark PRIVATE ${FFTW3F_INCLUDE_DIRS})
         target_link_libraries(fft_benchmark PRIVATE ${FFTW3F_LINK_LIBRARIES})
         target_compile_definitions(fft_benchmark PRIVATE HAVE_FFTW)
@@ -119,6 +169,9 @@ endif()
 # Backend: KissFFT (via CPM)
 # ============================================================================
 if(ENABLE_KISSFFT)
+    # Suppress KissFFT alignment warnings
+    add_compile_options(-Wno-cast-align)
+
     CPMAddPackage(
         NAME kissfft
         GITHUB_REPOSITORY mborgerding/kissfft
@@ -131,7 +184,7 @@ if(ENABLE_KISSFFT)
     )
 
     if(kissfft_ADDED)
-        message(STATUS "✓ KissFFT added via CPM")
+        message(STATUS "✓ KissFFT added")
         target_link_libraries(fft_benchmark PRIVATE kissfft::kissfft)
         target_compile_definitions(fft_benchmark PRIVATE HAVE_KISSFFT)
     else()
@@ -152,7 +205,7 @@ if(ENABLE_POCKETFFT)
     )
 
     if(pocketfft_ADDED)
-        message(STATUS "✓ PocketFFT added via CPM")
+        message(STATUS "✓ PocketFFT added")
         target_include_directories(fft_benchmark PRIVATE ${pocketfft_SOURCE_DIR})
         target_compile_definitions(fft_benchmark PRIVATE HAVE_POCKETFFT)
     else()
@@ -173,7 +226,7 @@ if(ENABLE_PFFFT)
     )
 
     if(pffft_ADDED)
-        message(STATUS "✓ PFFFT added via CPM")
+        message(STATUS "✓ PFFFT added")
 
         add_library(pffft_lib STATIC
             ${pffft_SOURCE_DIR}/src/pffft.c
@@ -181,13 +234,10 @@ if(ENABLE_PFFFT)
             ${pffft_SOURCE_DIR}/src/pffft_common.c
         )
 
-        # Sources use bare includes like "pffft.h" and "pffft_double.h".
-        # Public headers live in include/pffft/, internal headers in src/.
-        # Both must be on the include path so the .c files can find everything.
         target_include_directories(pffft_lib
-            PUBLIC ${pffft_SOURCE_DIR}/include/pffft # exposes pffft.h to consumers too
-            PRIVATE ${pffft_SOURCE_DIR}/include/pffft # so .c files find pffft_double.h etc.
-            ${pffft_SOURCE_DIR}/src # internal: pffft_priv_impl.h, fmv.h, simd/
+            PUBLIC ${pffft_SOURCE_DIR}/include/pffft
+            PRIVATE ${pffft_SOURCE_DIR}/include/pffft
+            ${pffft_SOURCE_DIR}/src
         )
 
         if(UNIX)
@@ -225,7 +275,7 @@ if(ENABLE_KFR)
     )
 
     if(kfr_ADDED)
-        message(STATUS "✓ KFR added via CPM")
+        message(STATUS "✓ KFR added")
         target_link_libraries(fft_benchmark PRIVATE kfr kfr_dft)
         target_compile_definitions(fft_benchmark PRIVATE HAVE_KFR)
     else()
@@ -246,7 +296,7 @@ if(ENABLE_SIGNALSMITH)
     )
 
     if(signalsmith_dsp_ADDED)
-        message(STATUS "✓ Signalsmith DSP added via CPM")
+        message(STATUS "✓ Signalsmith DSP added")
         target_include_directories(fft_benchmark PRIVATE ${signalsmith_dsp_SOURCE_DIR})
         target_compile_definitions(fft_benchmark PRIVATE HAVE_SIGNALSMITH)
     else()
@@ -259,7 +309,7 @@ endif()
 # Backend: JUCE (large DSP framework via CPM)
 # ============================================================================
 if(ENABLE_JUCE)
-    message(STATUS "Fetching JUCE (this may take a while, it's a large framework)...")
+    message(STATUS "Fetching JUCE (this may take a while)...")
 
     CPMAddPackage(
         NAME juce
@@ -269,7 +319,7 @@ if(ENABLE_JUCE)
     )
 
     if(juce_ADDED)
-        message(STATUS "✓ JUCE downloaded via CPM")
+        message(STATUS "✓ JUCE downloaded")
 
         target_include_directories(fft_benchmark PRIVATE
             ${juce_SOURCE_DIR}/modules
@@ -284,9 +334,6 @@ if(ENABLE_JUCE)
             JUCE_MODAL_LOOPS_PERMITTED=0
         )
 
-        # ----------------------------------------------------------------
-        # JUCE module unity-build sources
-        # ----------------------------------------------------------------
         set(JUCE_SOURCES
             ${juce_SOURCE_DIR}/modules/juce_core/juce_core.cpp
             ${juce_SOURCE_DIR}/modules/juce_audio_basics/juce_audio_basics.cpp
@@ -295,8 +342,6 @@ if(ENABLE_JUCE)
         )
 
         if(APPLE)
-            # JUCE's ObjC++ unity files must be compiled as Objective-C++.
-            # We set this per-file so the main benchmark source is unaffected.
             set_source_files_properties(${JUCE_SOURCES} PROPERTIES
                 COMPILE_FLAGS "-x objective-c++"
             )
@@ -311,14 +356,6 @@ if(ENABLE_JUCE)
             )
         endif()
 
-        # ----------------------------------------------------------------
-        # juce_stubs.cpp — provides juce_compilationDate / juce_compilationTime
-        # that JUCE normally auto-generates during a full JUCE build.
-        #
-        # We look for it next to CMakeLists.txt first (project root), then
-        # fall back to src/, then inc/ — so the project keeps working
-        # regardless of where the file lives.
-        # ----------------------------------------------------------------
         if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/juce_stubs.cpp")
             set(JUCE_STUBS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/juce_stubs.cpp")
         elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/juce_stubs.cpp")
@@ -326,73 +363,82 @@ if(ENABLE_JUCE)
         elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/inc/juce_stubs.cpp")
             set(JUCE_STUBS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/inc/juce_stubs.cpp")
         else()
-            # Neither location found — generate a minimal stub on the fly so
-            # the build doesn't fail outright.
-            message(STATUS "  juce_stubs.cpp not found — generating a minimal stub")
+            message(STATUS "  Generating minimal juce_stubs.cpp")
             set(JUCE_STUBS_SRC "${CMAKE_CURRENT_BINARY_DIR}/juce_stubs.cpp")
             file(WRITE "${JUCE_STUBS_SRC}"
-                "// Auto-generated by CMake — provides JUCE compilation timestamp symbols.\n"
-                "namespace juce\n"
-                "{\n"
+                "namespace juce {\n"
                 "    extern const char* const juce_compilationDate = __DATE__;\n"
                 "    extern const char* const juce_compilationTime = __TIME__;\n"
                 "}\n"
             )
         endif()
 
-        message(STATUS "  Using juce_stubs.cpp from: ${JUCE_STUBS_SRC}")
-
-        # The stubs file is plain C++ (no ObjC), so add it separately without
-        # the "-x objective-c++" flag that the JUCE unity files carry.
         target_sources(fft_benchmark PRIVATE
             ${JUCE_SOURCES}
             ${JUCE_STUBS_SRC}
         )
-
-        message(STATUS "    JUCE modules: juce_core, juce_audio_basics, juce_audio_formats, juce_dsp")
     else()
         message(WARNING "✗ JUCE could not be fetched")
         set(ENABLE_JUCE OFF)
     endif()
 endif()
 
-
+# ============================================================================
+# Backend: FFTS (x86_64 only - known issues on Apple Silicon)
+# ============================================================================
 if(ENABLE_FFTS)
-
-    CPMAddPackage(
-        NAME FFTS
-        GITHUB_REPOSITORY RoBr-01/FFTS
-        GIT_TAG dev
-    )
-
-    if(FFTS_ADDED)
-        message(STATUS "✓ FFTS added via CPM (subdirectory build)")
-
-        # FFTS now defines its own target via its CMakeLists.txt
-        # Common names: ffts, FFTS, or ffts_static
-        # You MUST check your repo's actual target name.
-
-        target_link_libraries(fft_benchmark PRIVATE ffts)
-
-        target_include_directories(fft_benchmark PRIVATE
-            ${FFTS_SOURCE_DIR}/include
+    # Check if we're on Apple Silicon - FFTS is known to be broken
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64" AND APPLE)
+        message(WARNING "FFTS is disabled on Apple Silicon - NEON assembly incompatible with macOS")
+        message(WARNING "  Use FFTW, PFFFT, or JUCE for best performance on Apple Silicon")
+        set(ENABLE_FFTS OFF CACHE BOOL "FFTS backend" FORCE)
+    else()
+        CPMAddPackage(
+            NAME FFTS
+            GITHUB_REPOSITORY RoBr-01/FFTS
+            GIT_TAG dev
+            OPTIONS
+            "ENABLE_STATIC ON"
+            "ENABLE_SHARED OFF"
+            "DISABLE_DYNAMIC_CODE OFF"
         )
 
-        target_compile_definitions(fft_benchmark PRIVATE HAVE_FFTS)
+        if(FFTS_ADDED)
+            message(STATUS "✓ FFTS added")
 
-    else()
-        message(WARNING "✗ FFTS could not be fetched")
-        set(ENABLE_FFTS OFF)
+            if(TARGET ffts_static)
+                target_link_libraries(fft_benchmark PRIVATE ffts_static)
+            elseif(TARGET ffts)
+                target_link_libraries(fft_benchmark PRIVATE ffts)
+            endif()
+
+            target_include_directories(fft_benchmark PRIVATE
+                ${FFTS_SOURCE_DIR}/include
+            )
+
+            target_compile_definitions(fft_benchmark PRIVATE HAVE_FFTS)
+        else()
+            message(WARNING "✗ FFTS could not be fetched")
+            set(ENABLE_FFTS OFF)
+        endif()
     endif()
-
 endif()
-
 
 # ============================================================================
 # Platform-specific Libraries
 # ============================================================================
-if(UNIX)
+if(UNIX AND NOT APPLE)
     target_link_libraries(fft_benchmark PRIVATE pthread m)
+elseif(APPLE)
+    target_link_libraries(fft_benchmark PRIVATE m)
+endif()
+
+# ============================================================================
+# Suppress common warnings for backends
+# ============================================================================
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang")
+    # Suppress cast-align warnings from KissFFT and other backends
+    add_compile_options(-Wno-cast-align)
 endif()
 
 # ============================================================================
@@ -406,15 +452,18 @@ message(STATUS "Build Type:    ${CMAKE_BUILD_TYPE}")
 message(STATUS "Compiler:      ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "Platform:      ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
 message(STATUS "")
+message(STATUS "Optimization Flags:")
+message(STATUS "  ${CMAKE_CXX_FLAGS}")
+message(STATUS "")
 message(STATUS "Enabled FFT Backends:")
 message(STATUS "  ${ENABLE_FFTW}        FFTW")
-message(STATUS "  ${ENABLE_KISSFFT}        KissFFT")
-message(STATUS "  ${ENABLE_POCKETFFT}        PocketFFT")
-message(STATUS "  ${ENABLE_PFFFT}        PFFFT")
-message(STATUS "  ${ENABLE_KFR}        KFR")
-message(STATUS "  ${ENABLE_SIGNALSMITH}        Signalsmith")
+message(STATUS "  ${ENABLE_KISSFFT}     KissFFT")
+message(STATUS "  ${ENABLE_POCKETFFT}   PocketFFT")
+message(STATUS "  ${ENABLE_PFFFT}       PFFFT")
+message(STATUS "  ${ENABLE_KFR}         KFR")
+message(STATUS "  ${ENABLE_SIGNALSMITH} Signalsmith")
 message(STATUS "  ${ENABLE_JUCE}        JUCE")
-message(STATUS "  ${ENABLE_FFTS}        FFTS")
+message(STATUS "  ${ENABLE_FFTS}        FFTS (x86_64 only)")
 message(STATUS "")
 message(STATUS "To toggle backends:")
 message(STATUS "  cmake -DENABLE_FFTW=OFF -DENABLE_KFR=ON ..")
