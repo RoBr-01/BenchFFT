@@ -388,41 +388,37 @@ endif()
 # ============================================================================
 if(ENABLE_FFTS)
     # Check if we're on Apple Silicon - FFTS is known to be broken
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64" AND APPLE)
-        message(WARNING "FFTS is disabled on Apple Silicon - NEON assembly incompatible with macOS")
-        message(WARNING "  Use FFTW, PFFFT, or JUCE for best performance on Apple Silicon")
-        set(ENABLE_FFTS OFF CACHE BOOL "FFTS backend" FORCE)
-    else()
-        CPMAddPackage(
-            NAME FFTS
-            GITHUB_REPOSITORY RoBr-01/FFTS
-            GIT_TAG dev
-            OPTIONS
-            "ENABLE_STATIC ON"
-            "ENABLE_SHARED OFF"
-            "DISABLE_DYNAMIC_CODE OFF"
+    # if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64" AND APPLE)
+    #     message(WARNING "FFTS is disabled on Apple Silicon - NEON assembly incompatible with macOS")
+    #     message(WARNING "  Use FFTW, PFFFT, or JUCE for best performance on Apple Silicon")
+    #     set(ENABLE_FFTS OFF CACHE BOOL "FFTS backend" FORCE)
+    # else()
+    CPMAddPackage(
+        NAME FFTS
+        GITHUB_REPOSITORY RoBr-01/FFTS
+        GIT_TAG dev
+    )
+
+    if(FFTS_ADDED)
+        message(STATUS "✓ FFTS added")
+
+        if(TARGET ffts_static)
+            target_link_libraries(fft_benchmark PRIVATE ffts_static)
+        elseif(TARGET ffts)
+            target_link_libraries(fft_benchmark PRIVATE ffts)
+        endif()
+
+        target_include_directories(fft_benchmark PRIVATE
+            ${FFTS_SOURCE_DIR}/include
         )
 
-        if(FFTS_ADDED)
-            message(STATUS "✓ FFTS added")
-
-            if(TARGET ffts_static)
-                target_link_libraries(fft_benchmark PRIVATE ffts_static)
-            elseif(TARGET ffts)
-                target_link_libraries(fft_benchmark PRIVATE ffts)
-            endif()
-
-            target_include_directories(fft_benchmark PRIVATE
-                ${FFTS_SOURCE_DIR}/include
-            )
-
-            target_compile_definitions(fft_benchmark PRIVATE HAVE_FFTS)
-        else()
-            message(WARNING "✗ FFTS could not be fetched")
-            set(ENABLE_FFTS OFF)
-        endif()
+        target_compile_definitions(fft_benchmark PRIVATE HAVE_FFTS)
+    else()
+        message(WARNING "✗ FFTS could not be fetched")
+        set(ENABLE_FFTS OFF)
     endif()
 endif()
+# endif()
 
 # ============================================================================
 # Platform-specific Libraries
