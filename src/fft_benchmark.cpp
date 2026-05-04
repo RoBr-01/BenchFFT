@@ -1,32 +1,40 @@
-#include "fft_backend.h"
+#include <fft_backend.h>
 
 // Include backends based on what's enabled
-#ifdef HAVE_FFTW
-#include "fftw_backend.h"
-#endif
+#include <fftw_backend.h>
+
+#define HAVE_KISSFFT 1
 #ifdef HAVE_KISSFFT
 #include "kissfft_backend.h"
 #endif
+
+#define HAVE_POCKETFFT 1
 #ifdef HAVE_POCKETFFT
 #include "pocketfft_backend.h"
 #endif
+
+#define HAVE_PFFFT 1
 #ifdef HAVE_PFFFT
 #include "pffft_backend.h"
 #endif
+
+#define HAVE_KFR 1
 #ifdef HAVE_KFR
 #include "kfr_backend.h"
 #endif
+#define HAVE_SIGNALSMITH 1
 #ifdef HAVE_SIGNALSMITH
 #include "signalsmith_backend.h"
 #endif
+
+#define HAVE_JUCE 1
 #ifdef HAVE_JUCE
 #include "JUCE_backend.h"
 #endif
+
+#define HAVE_HIFILOFI 1
 #ifdef HAVE_HIFILOFI
 #include "hifilofi_backend.h"
-#endif
-#ifdef HAVE_FFTS
-#include "ffts_backend.h"
 #endif
 
 #include <algorithm>
@@ -619,7 +627,8 @@ class FFTBenchmark {
 // ============================================================================
 
 int main(int argc, char* argv[]) {
-    std::vector<int> sizes = {32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384};
+    std::vector<int> sizes = {
+        32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384};
 
     // Usage: fft_benchmark [warmup] [iterations] [num_input_buffers]
     int warmup = 50;
@@ -635,9 +644,7 @@ int main(int argc, char* argv[]) {
 
     FFTBenchmark benchmark(warmup, iterations, num_buffers);
 
-#ifdef HAVE_FFTW
     benchmark.add_backend(std::make_unique<FFTWBackend>());
-#endif
 #ifdef HAVE_KISSFFT
     benchmark.add_backend(std::make_unique<KissFFTBackend>());
 #endif

@@ -20,11 +20,13 @@ public:
         
         // Initialize AudioFFT
         fft_.init(size);
+
+        m_complexsize = fft_.ComplexSize(size);
         
         // Allocate buffers
         real_buffer_.resize(size);
-        re_buffer_.resize(fft_.ComplexSize());  // size/2 + 1
-        im_buffer_.resize(fft_.ComplexSize());
+        re_buffer_.resize(m_complexsize);  // size/2 + 1
+        im_buffer_.resize(m_complexsize);
     }
     
     void cleanup() override {
@@ -41,14 +43,14 @@ public:
         fft_.fft(real_buffer_.data(), re_buffer_.data(), im_buffer_.data());
         
         // Combine into std::complex
-        for (size_t i = 0; i < fft_.ComplexSize(); ++i) {
+        for (size_t i = 0; i < m_complexsize; ++i) {
             out[i] = std::complex<float>(re_buffer_[i], im_buffer_[i]);
         }
     }
     
     void backward(const std::complex<float>* in, float* out) override {
         // Split std::complex into separate real/imag arrays
-        for (size_t i = 0; i < fft_.ComplexSize(); ++i) {
+        for (size_t i = 0; i < m_complexsize; ++i) {
             re_buffer_[i] = in[i].real();
             im_buffer_[i] = in[i].imag();
         }
@@ -89,6 +91,7 @@ private:
     std::vector<float> real_buffer_;
     std::vector<float> re_buffer_;  // Real part of complex output
     std::vector<float> im_buffer_;  // Imaginary part of complex output
+    size_t m_complexsize{};
 };
 
 #endif // HAVE_HIFILOFI

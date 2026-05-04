@@ -1,0 +1,21 @@
+[submodule "lib/kissfft"]
+	path = lib/kissfft
+	url = https://github.com/mborgerding/kissfft
+[submodule "lib/pocketfft"]
+	path = lib/pocketfft
+	url = https://github.com/mreineck/pocketfft
+[submodule "lib/pffft"]
+	path = lib/pffft
+	url = https://github.com/marton78/pffft
+[submodule "lib/kfr"]
+	path = lib/kfr
+	url = https://github.com/kfrlib/kfr
+[submodule "lib/signalsmith"]
+	path = lib/signalsmith
+	url = https://github.com/Signalsmith-Audio/dsp
+[submodule "lib/juce"]
+	path = lib/juce
+	url = https://github.com/juce-framework/JUCE
+[submodule "lib/hifilofi"]
+	path = lib/hifilofi
+	url = https://github.com/HiFi-LoFi/AudioFFT

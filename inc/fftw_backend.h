@@ -2,7 +2,7 @@
 
 #include <fftw3.h>
 
-#include "fft_backend.h"
+#include <fft_backend.h>
 
 class FFTWBackend : public FFTBackend {
    public:
