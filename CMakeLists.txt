@@ -17,40 +17,91 @@ add_executable(${PROJECT_NAME})
 target_sources(${PROJECT_NAME} PRIVATE src/fft_benchmark.cpp)
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/inc)
 
-# Backend: FFTW (via source build)
-set(ENABLE_FLOAT ON CACHE BOOL "single-precision" FORCE)
-set(ENABLE_THREADS OFF CACHE BOOL "Enable threading" FORCE) # For multi-core
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
-
-set(ENABLE_NEON ON CACHE BOOL "Enable NEON SIMD" FORCE)
-set(DISABLE_ALL_SIMD OFF CACHE BOOL "" FORCE)
-
 # For macOS ARM64, explicitly set the architecture
 if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum OS X deployment version" FORCE)
 endif()
 
+# With global install, else too difficult
+set(ENABLE_FFTW ON)
+
+if(ENABLE_FFTW)
+    find_package(PkgConfig QUIET)
+
+
+    if(PkgConfig_FOUND)
+        pkg_check_modules(FFTW3F fftw3f)
+    endif()
+
+
+    if(NOT FFTW3F_FOUND)
+        find_path(FFTW3_INCLUDE_DIR)
+        find_path(FFTW3_INCLUDE_DIR
+            NAMES fftw3.h
+            PATHS
+            /usr/local/include
+            /usr/include
+            /opt/homebrew/include
+            /opt/local/include
+            /usr/local/include
+            /usr/include
+            /opt/homebrew/include
+            /opt/local/include
+        )
+
+
+        find_library(FFTW3F_LIBRARY
+            NAMES fftw3f libfftw3f.dylib
+            PATHS
+            /usr/local/lib
+            /usr/lib
+            /opt/homebrew/lib
+            /opt/local/lib
+            /usr/local/lib
+            /usr/lib
+            /opt/homebrew/lib
+            /opt/local/lib
+        )
+
+
+        if(FFTW3_INCLUDE_DIR AND FFTW3F_LIBRARY)
+            set(FFTW3F_FOUND TRUE)
+            set(FFTW3F_INCLUDE_DIRS ${FFTW3_INCLUDE_DIR})
+            set(FFTW3F_LINK_LIBRARIES ${FFTW3F_LIBRARY})
+        endif()
+    endif()
+
+
+    if(FFTW3F_FOUND)
+        message(STATUS "✓ FFTW found")
+        message(STATUS "  Include: ${FFTW3F_INCLUDE_DIRS}")
+        message(STATUS "  Library: ${FFTW3F_LINK_LIBRARIES}")
+
+
+        target_include_directories(${PROJECT_NAME} PRIVATE ${FFTW3F_INCLUDE_DIRS})
+        target_link_libraries(${PROJECT_NAME} PRIVATE ${FFTW3F_LINK_LIBRARIES})
+        target_compile_definitions(${PROJECT_NAME} PRIVATE HAVE_FFTW)
+    else()
+        message(WARNING "✗ FFTW not found - install with: brew install fftw (macOS) or apt-get install libfftw3-dev (Ubuntu)")
+        set(ENABLE_FFTW OFF)
+    endif()
+endif()
 # Add FFTW with proper C flags
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lib/fftw-3.3.11)
+# add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lib/fftw-3.3.11)
 
-# The issue: FFTW's CMake doesn't properly set up the float API
-# Manually add the missing defines
-target_compile_definitions(fftw3f PRIVATE FFTW_SINGLE)
-target_compile_definitions(fftw3f PUBLIC FFTW_SINGLE)
+# # The issue: FFTW's CMake doesn't properly set up the float API
+# # Manually add the missing defines
+# target_compile_definitions(fftw3f PRIVATE FFTW_SINGLE)
+# target_compile_definitions(fftw3f PUBLIC FFTW_SINGLE)
 
-# Link your executable
-target_link_libraries(${PROJECT_NAME} PRIVATE fftw3f)
+# # Link your executable
+# target_link_libraries(${PROJECT_NAME} PRIVATE fftw3f)
 
-# Add the include directory (the build directory for generated headers)
-target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/lib/fftw-3.3.11/api
-    ${CMAKE_CURRENT_BINARY_DIR}/lib/fftw-3.3.11
-)
-
-target_compile_options(${PROJECT_NAME} PRIVATE -O3)
-target_link_options(${PROJECT_NAME} PRIVATE -flto)
+# # Add the include directory (the build directory for generated headers)
+# target_include_directories(${PROJECT_NAME} PRIVATE
+#     ${CMAKE_CURRENT_SOURCE_DIR}/lib/fftw-3.3.11/api
+#     ${CMAKE_CURRENT_BINARY_DIR}/lib/fftw-3.3.11
+# )
 
 
 # Backend: KissFFT (via source build)
