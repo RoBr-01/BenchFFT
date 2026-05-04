@@ -1,35 +1,56 @@
 {
-    "version": 3,
+    "version": 11,
     "configurePresets": [
-      {
-        "name": "default",
-        "hidden": true,
-        "generator": "Ninja",
-        "binaryDir": "${sourceDir}/build/${presetName}"
-      },
-      {
-        "name": "debug",
-        "inherits": "default",
-        "cacheVariables": {
-          "CMAKE_BUILD_TYPE": "Debug"
+        {
+            "name": "default",
+            "description": "Base configuration for all builds",
+            "generator": "Ninja",
+            "hidden": true,
+            "binaryDir": "${sourceDir}/build/${presetName}"
+        },
+        {
+            "name": "debug",
+            "description": "Debug build with no optimizations",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "release",
+            "description": "Release build",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "test",
+            "description": "Build tests",
+            "inherits": "default",
+            "cacheVariables": {
+                "$env{PROJECT_NAME}_BUILD_TESTS": "ON"
+            }
         }
-      },
-      {
-        "name": "release",
-        "inherits": "default",
-        "cacheVariables": {
-          "CMAKE_BUILD_TYPE": "Release"
-        }
-      }
     ],
     "buildPresets": [
-      {
-        "name": "debug",
-        "configurePreset": "debug"
-      },
-      {
-        "name": "release",
-        "configurePreset": "release"
-      }
+        {
+            "name": "build-debug",
+            "description": "Build the Debug preset",
+            "configurePreset": "debug",
+            "jobs": 6
+        },
+        {
+            "name": "build-release",
+            "description": "Build the Release preset",
+            "configurePreset": "release",
+            "jobs": 6
+        },
+        {
+            "name": "build-test",
+            "description": "Build the Test preset",
+            "configurePreset": "test",
+            "jobs": 6
+        }
     ]
-  }
+}
